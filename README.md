@@ -25,10 +25,19 @@
   `send_handler` 公共属性取用。
 - Python 依赖：`httpx>=0.24.0`
 
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [使用教程](docs/usage-guide.md) | **从这里开始** —— 五分钟跑通、各类消息怎么发、踩坑指南 |
+| [API 参考](docs/api-reference.md) | 逐个签名的参数表、返回结构、配置项、错误值对照 |
+| [QQ 平台能力与限制](docs/qq-platform-notes.md) | 字段级平台规则，实现中各种校验的依据 |
+
 ## 架构
 
 ```
 qqbot_expand
+    ├── docs/       使用教程 / API 参考 / 平台规则
     ├── services/   对外 Service（面向其他插件）
     ├── tools/      精选 Tool（面向 LLM，仅 QQ 平台激活）
     ├── tests/      单元测试
