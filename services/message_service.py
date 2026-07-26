@@ -243,6 +243,14 @@ class QQBotMessageService(BaseService):
         """
 
         def builder() -> dict[str, Any]:
+            """拼装 Markdown + keyboard 消息体。
+
+            Returns:
+                完整消息体。
+
+            Raises:
+                ValueError: Markdown 载体缺失或按钮结构非法。
+            """
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
@@ -289,6 +297,14 @@ class QQBotMessageService(BaseService):
         """
 
         def builder() -> dict[str, Any]:
+            """拼装 ark 消息体。
+
+            Returns:
+                完整消息体。
+
+            Raises:
+                ValueError: 模板 id 或 kv 结构非法。
+            """
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_ARK,
                 "ark": build_ark(template_id, kv),
@@ -335,6 +351,14 @@ class QQBotMessageService(BaseService):
         """
 
         def builder() -> dict[str, Any]:
+            """拼装 embed 消息体。
+
+            Returns:
+                完整消息体。
+
+            Raises:
+                ValueError: title 为空。
+            """
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_EMBED,
                 "embed": build_embed(
@@ -381,6 +405,14 @@ class QQBotMessageService(BaseService):
         """
 
         def builder() -> dict[str, Any]:
+            """拼装模板 Markdown 消息体，按需附加按钮。
+
+            Returns:
+                完整消息体。
+
+            Raises:
+                ValueError: 模板参数或按钮结构非法。
+            """
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
@@ -423,6 +455,14 @@ class QQBotMessageService(BaseService):
         """
 
         def builder() -> dict[str, Any]:
+            """拼装带引用回复的文本消息体。
+
+            Returns:
+                完整消息体。
+
+            Raises:
+                ValueError: 内容为空或被引用消息 id 缺失。
+            """
             if not content or not content.strip():
                 raise ValueError("content 不能为空")
             payload: dict[str, Any] = {
