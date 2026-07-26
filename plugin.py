@@ -1,0 +1,146 @@
+"""QQ Bot 扩展能力插件入口。
+
+本插件依附于 ``qqbot_adapter`` 运行，自身不建立 WebSocket 连接、不管理 token，
+只做两件事：
+
+1. 把 QQ 开放平台的消息结构体（keyboard / ark / embed / markdown 模板 /
+   message_reference）封装成 Service 与 Tool，补齐适配器未覆盖的消息类型。
+2. 提供一个统一的 QQ 开放 API 调用出口，覆盖 ``SendHandler.post_api()``
+   无法处理的 GET / PUT / DELETE 请求。
+
+生命周期职责：``BaseService`` 每次 ``get_service()`` 都会新建实例，
+因此长生命周期资源（httpx 客户端）必须挂在插件实例上，由本文件的
+``on_plugin_loaded`` / ``on_plugin_unloaded`` 负责创建与释放。
+"""
+from __future__ import annotations
+
+import httpx
+
+from src.app.plugin_system.api.log_api import get_logger
+from src.app.plugin_system.base import BaseConfig, BasePlugin, register_plugin
+
+from .config import QQBotExpandConfig
+from .services import ALL_SERVICES
+from .services.interaction_service import QQBotInteractionService
+from .services.message_service import QQBotMessageService
+from .services.raw_service import QQBotRawService
+from .tools import ALL_TOOLS
+from .tools.send_ark import QQSendArkTool
+from .tools.send_keyboard import QQSendKeyboardTool
+from .tools.send_reply import QQSendReplyTool
+
+logger = get_logger("qqbot_expand")
+
+__all__ = ["QQBotExpandPlugin"]
+
+
+@register_plugin
+class QQBotExpandPlugin(BasePlugin):
+    """QQ Bot 扩展能力插件。
+
+    Attributes:
+        http_client: 全插件共享的 httpx 异步客户端，供各 Service 发起
+            非 POST 请求；未加载完成时为 None。
+    """
+
+    plugin_name = "qqbot_expand"
+    plugin_description = "为 qqbot_adapter 补齐按钮/ark/embed/模板 Markdown 等消息类型，并提供统一的 QQ 开放 API 调用通道"
+    plugin_version = "0.1.0"
+    configs = [QQBotExpandConfig]
+
+    def __init__(self, config: BaseConfig | None = None) -> None:
+        """初始化插件。
+
+        Args:
+            config: 框架注入的插件配置实例。
+        """
+        super().__init__(config)
+        self.http_client: httpx.AsyncClient | None = None
+
+    def get_components(self) -> list[type]:
+        """返回插件注册的全部组件。
+
+        ``features.enable_tools`` 关闭时不注册 Tool，只保留 Service，
+        避免把 QQ 专属能力暴露给 LLM。
+
+        Returns:
+            组件类列表。
+        """
+        # 注：此处刻意逐个字面量列出并使用无注解赋值 + append，
+        # 以便 mpdt 的 ComponentValidator 能静态解析出组件清单。
+        components = [
+            QQBotMessageService,
+            QQBotInteractionService,
+            QQBotRawService,
+        ]
+        if self._tools_enabled():
+            components.append(QQSendKeyboardTool)
+            components.append(QQSendArkTool)
+            components.append(QQSendReplyTool)
+        return components
+
+    async def on_plugin_loaded(self) -> None:
+        """插件加载时创建共享 httpx 客户端。"""
+        http_cfg = getattr(self.config, "http", None)
+        self.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                float(getattr(http_cfg, "request_timeout", 30.0)),
+                connect=float(getattr(http_cfg, "connect_timeout", 10.0)),
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=int(
+                    getattr(http_cfg, "max_keepalive_connections", 20)
+                ),
+                max_connections=int(getattr(http_cfg, "max_connections", 50)),
+                keepalive_expiry=float(getattr(http_cfg, "keepalive_expiry", 30.0)),
+            ),
+            http2=self._http2_enabled(http_cfg),
+            trust_env=False,
+        )
+        tool_count = len(ALL_TOOLS) if self._tools_enabled() else 0
+        logger.info(
+            f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
+        )
+
+    @staticmethod
+    def _http2_enabled(http_cfg: object) -> bool:
+        """决定是否启用 HTTP/2。
+
+        httpx 的 ``http2=True`` 依赖可选包 ``h2``，缺失时会在构造客户端阶段直接
+        抛 ImportError 导致插件加载失败。这里主动降级到 HTTP/1.1，
+        保证插件在未装 ``httpx[http2]`` 的环境下依然可用。
+
+        Args:
+            http_cfg: HTTP 配置段，可能为 None。
+
+        Returns:
+            最终是否启用 HTTP/2。
+        """
+        if not bool(getattr(http_cfg, "http2", True)):
+            return False
+        try:
+            import h2  # noqa: F401
+        except ImportError:
+            logger.warning("未安装 h2，HTTP/2 已自动降级为 HTTP/1.1")
+            return False
+        return True
+
+    async def on_plugin_unloaded(self) -> None:
+        """插件卸载时关闭共享 httpx 客户端。"""
+        if self.http_client is not None:
+            try:
+                await self.http_client.aclose()
+            except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出
+                logger.warning(f"关闭 httpx 客户端失败: {exc}")
+            finally:
+                self.http_client = None
+        logger.info("qqbot_expand 插件已卸载")
+
+    def _tools_enabled(self) -> bool:
+        """读取 ``features.enable_tools`` 开关。
+
+        Returns:
+            是否注册精选 Tool；配置缺失时默认为 True。
+        """
+        features = getattr(self.config, "features", None)
+        return bool(getattr(features, "enable_tools", True))
