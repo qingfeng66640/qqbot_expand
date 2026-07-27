@@ -101,6 +101,7 @@ class FakeSendHandler:
         self.base_url = base_url
         self.posts: list[tuple[str, dict[str, str], dict[str, Any]]] = []
         self.post_result: Any = {"id": "msg-1", "timestamp": 1}
+        self.post_results: list[Any] = []
 
     async def get_token(self) -> str:
         """返回固定 token。
@@ -127,9 +128,10 @@ class FakeSendHandler:
             BaseException: 预置结果为异常时原样抛出。
         """
         self.posts.append((url, headers, body))
-        if isinstance(self.post_result, BaseException):
-            raise self.post_result
-        return self.post_result
+        result = self.post_results.pop(0) if self.post_results else self.post_result
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
 
 def make_plugin(

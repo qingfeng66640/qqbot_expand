@@ -32,6 +32,7 @@ __all__ = [
     "build_embed",
     "build_keyboard",
     "build_markdown",
+    "build_media",
     "build_message_reference",
     "cmd_enter",
     "cmd_input",
@@ -156,6 +157,26 @@ def build_keyboard(rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
             )
         built_rows.append({"buttons": list(row)})
     return {"content": {"rows": built_rows}}
+
+
+def build_media(file_info: str) -> dict[str, str]:
+    """构造富媒体消息结构。
+
+    ``file_info`` 是 QQ 上传接口返回的不透明数据，必须原样透传，不能解析、
+    修改或跨单聊/群聊目标复用。
+
+    Args:
+        file_info: ``POST /files`` 返回的富媒体信息。
+
+    Returns:
+        ``{"file_info": file_info}``。
+
+    Raises:
+        ValueError: file_info 不是非空字符串。
+    """
+    if not isinstance(file_info, str) or not file_info.strip():
+        raise ValueError("media file_info 不能为空")
+    return {"file_info": file_info}
 
 
 # ============ ark / embed / markdown ============

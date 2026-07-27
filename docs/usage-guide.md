@@ -296,7 +296,52 @@ enable_tools = false
 
 ---
 
-## 8. 被动回复 vs 主动推送
+## 8. 富媒体：图片、视频、语音和文件
+
+QQ 富媒体采用两阶段流程：先上传 URL 得到 `file_info`，再用 `msg_type=7` 发送。
+最常用的是一站式方法：
+
+```python
+from plugins.qqbot_expand.src.constants import FILE_TYPE_IMAGE
+
+result = await msg.send_media_from_url(
+    "group",
+    group_openid,
+    FILE_TYPE_IMAGE,
+    "https://cdn.example.com/report.png",
+    file_name="report.png",
+    msg_id=trigger_msg_id,
+)
+```
+
+需要复用上传结果时，可拆成两步：
+
+```python
+uploaded = await msg.upload_media_from_url(
+    "user", user_openid, 2, "https://cdn.example.com/demo.mp4"
+)
+if uploaded["success"]:
+    await msg.send_media(
+        "user",
+        user_openid,
+        uploaded["media"]["file_info"],
+        msg_id=trigger_msg_id,
+    )
+```
+
+`file_type` 为 1 图片、2 视频、3 语音、4 文件。`file_info` 不可解析或修改，也不能在
+单聊、群聊或不同目标之间复用；`ttl` 非 0 时必须在到期前发送。上传固定使用
+`srv_send_msg=false`，因此被动回复字段只在第二阶段使用，不会把上传动作误算成一次主动消息。
+
+URL 必须是公网 HTTP(S) 地址。本插件会拒绝私网、环回、链路本地及公私混合 DNS 结果；
+实际下载和重定向行为仍由 QQ 平台控制。
+
+本地文件分片上传暂未开放。未来预留 `send_media_from_local_file`，待适配器分片协议按
+最新官方文档验证后再实现。
+
+---
+
+## 9. 被动回复 vs 主动推送
 
 **这是最容易踩的坑。**
 
@@ -328,7 +373,7 @@ await msg.send_reply(..., msg_id=mid, msg_seq=2)   # 同一 msg_id 的第二次�
 
 ---
 
-## 9. 错误处理
+## 10. 错误处理
 
 所有方法都不抛异常，统一返回结构，`error` 已脱敏：
 
@@ -354,7 +399,7 @@ if not result["success"]:
 
 ---
 
-## 10. 常见问题
+## 11. 常见问题
 
 **Q: 按钮发出去了但点击没反应**
 A: 大概率用了回调按钮（`action.type=1`）。换成指令按钮。

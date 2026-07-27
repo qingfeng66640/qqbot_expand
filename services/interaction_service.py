@@ -40,7 +40,7 @@ class QQBotInteractionService(BaseService):
 
     service_name = "qqbot_interaction"
     service_description = "应答 QQ 按钮互动回调（PUT /interactions/{id}），可自定义提示码"
-    version = "0.1.0"
+    version = "0.2.0"
 
     async def ack(self, interaction_id: str, code: int = 0) -> dict[str, Any]:
         """应答一次互动回调。

@@ -170,6 +170,84 @@ async def send_embed(
 
 ---
 
+### 富媒体返回结构
+
+富媒体方法在公共返回字段外增加 `media`：
+
+```python
+{
+    "success": bool,
+    "message_id": str,
+    "media": {
+        "file_uuid": str,
+        "file_info": str,
+        "ttl": int,
+    } | None,
+    "error": str | None,
+}
+```
+
+`file_info` 是 QQ 返回的不透明数据，只能用于上传时对应的单聊或群聊目标；不得解析、
+修改、跨目标复用。`ttl` 为 0 表示可长期使用，否则到期后必须重新上传。
+
+### `upload_media_from_url`
+
+```python
+async def upload_media_from_url(
+    target_type: str,
+    target_id: str,
+    file_type: int,
+    url: str,
+    *,
+    file_name: str = "",
+) -> dict[str, Any]
+```
+
+只执行 URL 上传，固定 `srv_send_msg=false`，成功时 `message_id=""` 且 `media` 有值。
+`file_type`：1 图片、2 视频、3 语音、4 文件。URL 必须为 DNS 全部解析到公网地址的
+HTTP(S) 地址；本插件不自行下载，实际转存由 QQ 平台完成。
+
+### `send_media`
+
+```python
+async def send_media(
+    target_type: str,
+    target_id: str,
+    file_info: str,
+    *,
+    msg_id: str = "",
+    event_id: str = "",
+    msg_seq: int | None = None,
+) -> dict[str, Any]
+```
+
+使用已有 `file_info` 发送 `msg_type=7`。`msg_id` 与 `event_id` 必须二选一或都不提供；
+群聊消息会自动带 `content=""`。本方法不上传，因此返回的 `media` 为 `None`。
+
+### `send_media_from_url`
+
+```python
+async def send_media_from_url(
+    target_type: str,
+    target_id: str,
+    file_type: int,
+    url: str,
+    *,
+    file_name: str = "",
+    msg_id: str = "",
+    event_id: str = "",
+    msg_seq: int | None = None,
+) -> dict[str, Any]
+```
+
+依次执行 `/files` 上传和 `/messages` 发送。上传失败时不会发送；上传成功但发送失败时，
+返回值仍保留 `media.file_info`，可在 TTL 内直接调用 `send_media()` 重试，避免重复上传。
+
+> 本地文件分片上传预留为未来的 `send_media_from_local_file` 能力，当前不可调用。
+> 原因是依赖适配器的公开分片链路仍需按最新官方 0-based 分片索引协议完成验证。
+
+---
+
 ### `send_raw_message`
 
 ```python

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from ..services import message_service as message_service_module
 from ..services.interaction_service import QQBotInteractionService
 from ..services.message_service import QQBotMessageService
 from ..services.raw_service import QQBotRawService
@@ -17,6 +18,7 @@ from ..src.constants import (
     MSG_TYPE_ARK,
     MSG_TYPE_EMBED,
     MSG_TYPE_MARKDOWN,
+    MSG_TYPE_MEDIA,
     MSG_TYPE_TEXT,
 )
 from .conftest import FakeHttpClient, FakeResponse, make_plugin
@@ -270,7 +272,337 @@ class TestSendReply:
         assert result["success"] is False
 
 
-class TestSendRawMessage:
+class TestSendMedia:
+    """富媒体 URL 上传与发送。"""
+
+    @pytest.fixture(autouse=True)
+    def public_dns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """默认把测试域名解析到公网地址。"""
+
+        async def validate(url: str) -> tuple[str | None, str]:
+            """为非安全专项测试提供确定的公网 URL 结果。"""
+            return None, url.strip()
+
+        monkeypatch.setattr(
+            message_service_module, "_validate_public_media_url", validate
+        )
+
+    async def test_upload_user_media(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """单聊上传使用 /files 且不直接发送。"""
+        patch_send_handler.post_result = {
+            "file_uuid": "f1",
+            "file_info": "opaque",
+            "ttl": 300,
+            "raw_url": "should-not-leak",
+        }
+        result = await message_service.upload_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png", file_name="a.png"
+        )
+
+        assert sent_url(patch_send_handler).endswith("/v2/users/u1/files")
+        assert sent_body(patch_send_handler) == {
+            "file_type": 1,
+            "url": "https://cdn.example/a.png",
+            "srv_send_msg": False,
+            "file_name": "a.png",
+        }
+        assert result == {
+            "success": True,
+            "message_id": "",
+            "media": {"file_uuid": "f1", "file_info": "opaque", "ttl": 300},
+            "error": None,
+        }
+
+    async def test_upload_group_media(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """群聊上传使用群文件端点。"""
+        patch_send_handler.post_result = {"file_info": "opaque"}
+        await message_service.upload_media_from_url(
+            "group", "g1", 4, "https://cdn.example/a.bin"
+        )
+        assert sent_url(patch_send_handler).endswith("/v2/groups/g1/files")
+        assert "file_name" not in sent_body(patch_send_handler)
+
+    @pytest.mark.parametrize("file_type", [1, 2, 3, 4])
+    async def test_accepts_all_file_types(
+        self, message_service, patch_send_handler, file_type: int
+    ) -> None:
+        """官方定义的四种媒体类型均允许上传。"""
+        patch_send_handler.post_result = {"file_info": "opaque"}
+        result = await message_service.upload_media_from_url(
+            "user", "u1", file_type, "https://cdn.example/media"
+        )
+        assert result["success"] is True
+
+    @pytest.mark.parametrize("file_type", [0, 5, True, "1"])
+    async def test_rejects_bad_file_type(
+        self, message_service, patch_send_handler, file_type: object
+    ) -> None:
+        """未知或类型错误的 file_type 在请求前拒绝。"""
+        result = await message_service.upload_media_from_url(
+            "user", "u1", file_type, "https://cdn.example/a"  # type: ignore[arg-type]
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_requires_upload_file_info(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """上传响应不含 file_info 时不得伪装成功。"""
+        patch_send_handler.post_result = {"file_uuid": "f1"}
+        result = await message_service.upload_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png"
+        )
+        assert result["success"] is False
+        assert "file_info" in result["error"]
+
+    async def test_send_existing_file_info(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """已有 file_info 可跳过上传直接发送。"""
+        result = await message_service.send_media(
+            "group", "g1", "opaque", msg_id="m1"
+        )
+        body = sent_body(patch_send_handler)
+        assert body["msg_type"] == MSG_TYPE_MEDIA
+        assert body["media"] == {"file_info": "opaque"}
+        assert body["content"] == ""
+        assert body["msg_id"] == "m1"
+        assert body["msg_seq"] == 1
+        assert result["media"] is None
+
+    async def test_rejects_passive_source_conflict(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """官方要求 msg_id 与 event_id 二选一。"""
+        result = await message_service.send_media(
+            "user", "u1", "opaque", msg_id="m1", event_id="e1"
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_upload_then_send(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """一站式入口严格先上传再发送。"""
+        patch_send_handler.post_results = [
+            {"file_uuid": "f1", "file_info": "opaque", "ttl": 60},
+            {"id": "msg-media"},
+        ]
+        result = await message_service.send_media_from_url(
+            "user",
+            "u1",
+            2,
+            "https://cdn.example/a.mp4",
+            event_id="e1",
+        )
+
+        assert len(patch_send_handler.posts) == 2
+        assert patch_send_handler.posts[0][0].endswith("/v2/users/u1/files")
+        assert patch_send_handler.posts[1][0].endswith("/v2/users/u1/messages")
+        assert patch_send_handler.posts[1][2]["event_id"] == "e1"
+        assert result["message_id"] == "msg-media"
+        assert result["media"]["file_info"] == "opaque"
+
+    async def test_upload_failure_stops_send(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """上传失败时不进入消息发送阶段。"""
+        patch_send_handler.post_result = {"code": 850026, "message": "download fail"}
+        result = await message_service.send_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png"
+        )
+        assert result["success"] is False
+        assert len(patch_send_handler.posts) == 1
+
+    async def test_send_failure_keeps_media(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """上传成功但发送失败时保留 file_info 供重试。"""
+        patch_send_handler.post_results = [
+            {"file_uuid": "f1", "file_info": "opaque", "ttl": 60},
+            {"code": 304080, "message": "invalid media"},
+        ]
+        result = await message_service.send_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png"
+        )
+        assert result["success"] is False
+        assert result["media"]["file_info"] == "opaque"
+    async def test_normalizes_invalid_ttl(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """非整数 ttl 按未知有效期归一为 0。"""
+        patch_send_handler.post_result = {
+            "file_uuid": "f1",
+            "file_info": "opaque",
+            "ttl": "300",
+        }
+        result = await message_service.upload_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png"
+        )
+        assert result["media"]["ttl"] == 0
+
+    async def test_rejects_non_string_file_name(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """file_name 类型错误时不发请求。"""
+        result = await message_service.upload_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png", file_name=1  # type: ignore[arg-type]
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_rejects_url_validator_error(
+        self,
+        message_service,
+        patch_send_handler,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """URL 安全校验失败时不调用 QQ API。"""
+
+        async def reject(url: str) -> tuple[str | None, str]:
+            """返回预置安全错误。"""
+            return "url 只能指向公网地址", ""
+
+        monkeypatch.setattr(message_service_module, "_validate_public_media_url", reject)
+        result = await message_service.upload_media_from_url(
+            "user", "u1", 1, "https://private.example/a.png"
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_rejects_empty_file_info(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """直接发送时 file_info 不能为空。"""
+        result = await message_service.send_media("user", "u1", "   ")
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_rejects_bad_msg_seq_before_upload(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """一站式发送应在上传前校验回复序号。"""
+        result = await message_service.send_media_from_url(
+            "user", "u1", 1, "https://cdn.example/a.png", msg_seq=0
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+    async def test_rejects_passive_conflict_before_upload(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """一站式发送应在上传前校验被动来源互斥。"""
+        result = await message_service.send_media_from_url(
+            "user",
+            "u1",
+            1,
+            "https://cdn.example/a.png",
+            msg_id="m1",
+            event_id="e1",
+        )
+        assert result["success"] is False
+        assert patch_send_handler.posts == []
+
+
+class TestMediaUrlSecurity:
+    """媒体 URL SSRF 防护。"""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "",
+            "ftp://example.com/a",
+            "https:///a",
+            "https://user:pass@example.com/a",
+            "https://example.com:99999/a",
+            "https://127.0.0.1/a",
+            "https://10.0.0.1/a",
+            "https://169.254.1.1/a",
+            "https://[::1]/a",
+        ],
+    )
+    async def test_rejects_unsafe_url(self, url: str) -> None:
+        """非 HTTP(S) 或非公网地址必须拒绝。"""
+        error, _ = await message_service_module._validate_public_media_url(url)
+        assert error
+
+    async def test_accepts_public_ip(self) -> None:
+        """公网 IP 地址允许交给 QQ 下载。"""
+        error, normalized = await message_service_module._validate_public_media_url(
+            " https://8.8.8.8/a.png "
+        )
+        assert error is None
+        assert normalized == "https://8.8.8.8/a.png"
+
+    async def test_rejects_dns_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """域名解析失败时默认拒绝。"""
+        loop = __import__("asyncio").get_running_loop()
+
+        async def fail(*args, **kwargs):
+            """模拟 DNS 失败。"""
+            raise OSError("dns failed")
+
+        monkeypatch.setattr(loop, "getaddrinfo", fail)
+        error, _ = await message_service_module._validate_public_media_url(
+            "https://missing.example/a"
+        )
+        assert error
+
+    async def test_rejects_empty_dns_results(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """域名没有任何解析结果时拒绝。"""
+        loop = __import__("asyncio").get_running_loop()
+
+        async def empty(*args, **kwargs):
+            """返回空解析结果。"""
+            return []
+
+        monkeypatch.setattr(loop, "getaddrinfo", empty)
+        error, _ = await message_service_module._validate_public_media_url(
+            "https://empty.example/a"
+        )
+        assert error
+
+    async def test_rejects_invalid_dns_address(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """解析器返回非法 IP 时按 DNS 失败拒绝。"""
+        loop = __import__("asyncio").get_running_loop()
+
+        async def invalid(*args, **kwargs):
+            """返回非法地址。"""
+            return [(2, 1, 6, "", ("not-an-ip", 443))]
+
+        monkeypatch.setattr(loop, "getaddrinfo", invalid)
+        error, _ = await message_service_module._validate_public_media_url(
+            "https://invalid.example/a"
+        )
+        assert error
+
+    async def test_rejects_mixed_dns_results(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """域名同时解析到公网和私网时也必须拒绝。"""
+        loop = __import__("asyncio").get_running_loop()
+
+        async def mixed(*args, **kwargs):
+            """返回公私混合解析结果。"""
+            return [
+                (2, 1, 6, "", ("8.8.8.8", 443)),
+                (2, 1, 6, "", ("10.0.0.1", 443)),
+            ]
+
+        monkeypatch.setattr(loop, "getaddrinfo", mixed)
+        error, _ = await message_service_module._validate_public_media_url(
+            "https://mixed.example/a"
+        )
+        assert error
+
     """直投完整消息体。"""
 
     async def test_passthrough(self, message_service, patch_send_handler) -> None:

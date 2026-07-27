@@ -31,6 +31,19 @@ TARGET_TYPES: frozenset[str] = frozenset({TARGET_TYPE_USER, TARGET_TYPE_GROUP})
 PATH_USER_MESSAGES = "/v2/users/{openid}/messages"
 PATH_GROUP_MESSAGES = "/v2/groups/{openid}/messages"
 
+# 富媒体上传路径模板
+PATH_USER_FILES = "/v2/users/{openid}/files"
+PATH_GROUP_FILES = "/v2/groups/{openid}/files"
+
+# 富媒体类型：1 图片、2 视频、3 语音、4 文件
+FILE_TYPE_IMAGE = 1
+FILE_TYPE_VIDEO = 2
+FILE_TYPE_VOICE = 3
+FILE_TYPE_FILE = 4
+MEDIA_FILE_TYPES: frozenset[int] = frozenset(
+    {FILE_TYPE_IMAGE, FILE_TYPE_VIDEO, FILE_TYPE_VOICE, FILE_TYPE_FILE}
+)
+
 # 互动回调应答路径
 PATH_INTERACTION_ACK = "/interactions/{interaction_id}"
 

@@ -31,7 +31,7 @@ class QQBotRawService(BaseService):
 
     service_name = "qqbot_raw"
     service_description = "统一调用任意 QQ 开放 API（GET/POST/PUT/DELETE），并提供桥接状态探测"
-    version = "0.1.0"
+    version = "0.2.0"
 
     async def request(
         self,

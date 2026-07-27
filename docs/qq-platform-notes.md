@@ -11,7 +11,7 @@
 | 2 | Markdown | 支持 | 支持 | 支持 | 支持 | `send_keyboard` / `send_markdown_template` |
 | 3 | ark | 支持 | 支持 | 支持 | 支持 | `send_ark` |
 | 4 | embed | **不支持** | **不支持** | 支持 | 支持 | `send_embed`（保留，实际不可用） |
-| 7 | media | 支持 | 支持 | — | — | 由 `qqbot_adapter` 负责 |
+| 7 | media | 支持 | 支持 | — | — | `upload_media_from_url` / `send_media` / `send_media_from_url` |
 
 `qqbot_expand` 只覆盖 `/v2/users/{openid}/messages` 与
 `/v2/groups/{group_openid}/messages` 两个接口，即单聊与群聊场景。频道相关接口
@@ -37,6 +37,36 @@
 返回：`{"id": "消息唯一ID", "timestamp": 发送时间}`。
 
 常见错误码：`22009` 消息发送超频、`304082`/`304083` 富媒体资源拉取失败。
+
+## 富媒体（msg_type=7）
+
+官方协议分两步：
+
+1. `POST /v2/users/{openid}/files` 或 `/v2/groups/{openid}/files`，提交
+   `file_type`、公网 `url`、可选 `file_name` 与 `srv_send_msg=false`；
+2. 原样取出返回的 `file_info`，再向相同场景的 `/messages` 发送
+   `{"msg_type": 7, "media": {"file_info": "..."}}`。
+
+| file_type | 类型 | 文档软限制 | 硬限制 |
+| --- | --- | --- | --- |
+| 1 | 图片 | 20 MB | 200 MB |
+| 2 | 视频 | 30 MB | 200 MB |
+| 3 | 语音 | 20 MB | 200 MB |
+| 4 | 文件 | 200 MB | 200 MB |
+
+超过软限制时平台可能降级为文件；格式支持以平台实际响应为准。`file_info` 是不透明数据，
+单聊上传只能用于相同单聊目标，群聊上传只能用于相同群聊目标；`ttl=0` 表示长期有效，
+否则过期后必须重新上传。URL 上传接口限频 50 QPS，消息接口限频 100 QPS。
+
+本插件固定使用 `srv_send_msg=false`，避免上传动作直接消耗主动消息额度，并允许第二阶段
+携带 `msg_id`、`event_id` 和 `msg_seq`。URL 会在调用前检查协议和全部 DNS 解析结果，
+拒绝非公网地址；QQ 平台下载时发生的重定向仍由平台负责。
+
+常见上传/发送错误：`850019` 格式不支持、`850026` 下载 URL 失败、`850031` 超尺寸、
+`40093002` 当日累计上传超限、`304080` file_info 无效、`40034004` 富媒体转存失败。
+
+本地分片上传预留为后续能力，当前不可调用；需先确认适配器分片索引实现与最新官方
+0-based `parts[].index` 协议一致。
 
 ## 频控规则
 

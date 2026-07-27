@@ -18,7 +18,11 @@ embed、模板 Markdown、引用回复。
 """
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import socket
 from typing import Any
+from urllib.parse import urlsplit
 
 from src.app.plugin_system.base import BaseService
 
@@ -28,15 +32,20 @@ from ..src.builders import (
     build_embed,
     build_keyboard,
     build_markdown,
+    build_media,
     build_message_reference,
 )
 from ..src.constants import (
+    MEDIA_FILE_TYPES,
     MSG_SEQ_MAX,
     MSG_TYPE_ARK,
     MSG_TYPE_EMBED,
     MSG_TYPE_MARKDOWN,
+    MSG_TYPE_MEDIA,
     MSG_TYPE_TEXT,
+    PATH_GROUP_FILES,
     PATH_GROUP_MESSAGES,
+    PATH_USER_FILES,
     PATH_USER_MESSAGES,
     TARGET_TYPE_GROUP,
     TARGET_TYPE_USER,
@@ -93,6 +102,127 @@ def _failure(error: str) -> dict[str, Any]:
     return {"success": False, "message_id": "", "error": error}
 
 
+def _media_failure(
+    error: str, media: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """构造富媒体操作失败返回体。
+
+    Args:
+        error: 已脱敏的错误描述。
+        media: 已完成上传时可供重试的媒体元数据。
+
+    Returns:
+        富媒体统一返回结构。
+    """
+    return {
+        "success": False,
+        "message_id": "",
+        "media": media,
+        "error": error,
+    }
+
+
+def _normalize_media_metadata(data: dict[str, Any]) -> dict[str, Any] | None:
+    """提取允许对外暴露的上传元数据。
+
+    Args:
+        data: QQ 上传接口响应。
+
+    Returns:
+        规范化媒体元数据；缺少 file_info 时返回 None。
+    """
+    file_info = data.get("file_info")
+    if not isinstance(file_info, str) or not file_info.strip():
+        return None
+    ttl = data.get("ttl", 0)
+    if not isinstance(ttl, int) or isinstance(ttl, bool):
+        ttl = 0
+    return {
+        "file_uuid": str(data.get("file_uuid", "")),
+        "file_info": file_info,
+        "ttl": ttl,
+    }
+
+
+def _validate_media_file_type(file_type: int) -> str | None:
+    """校验 QQ 富媒体文件类型。
+
+    Args:
+        file_type: 1 图片、2 视频、3 语音、4 文件。
+
+    Returns:
+        错误描述；合法时返回 None。
+    """
+    if (
+        not isinstance(file_type, int)
+        or isinstance(file_type, bool)
+        or file_type not in MEDIA_FILE_TYPES
+    ):
+        return f"file_type 必须为 {sorted(MEDIA_FILE_TYPES)} 之一"
+    return None
+
+
+def _validate_passive_source(msg_id: str, event_id: str) -> str | None:
+    """校验被动回复来源字段互斥。
+
+    Args:
+        msg_id: 原始消息 id。
+        event_id: 原始事件 id。
+
+    Returns:
+        错误描述；合法时返回 None。
+    """
+    if msg_id and event_id:
+        return "msg_id 与 event_id 互斥，只能提供其中一个"
+    return None
+
+
+async def _validate_public_media_url(url: str) -> tuple[str | None, str]:
+    """校验媒体 URL 只指向公网 HTTP(S) 地址。
+
+    Args:
+        url: 待交给 QQ 平台下载的媒体 URL。
+
+    Returns:
+        ``(错误描述, 规范化 URL)``；合法时错误描述为 None。
+    """
+    if not isinstance(url, str) or not url.strip():
+        return "url 不能为空", ""
+    normalized = url.strip()
+    try:
+        parsed = urlsplit(normalized)
+        port = parsed.port
+    except ValueError:
+        return "url 格式不合法", ""
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return "url 只支持 http 或 https 协议", ""
+    if not parsed.hostname:
+        return "url 必须包含主机名", ""
+    if parsed.username is not None or parsed.password is not None:
+        return "url 不能包含用户名或密码", ""
+
+    host = parsed.hostname
+    try:
+        addresses = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            loop = asyncio.get_running_loop()
+            infos = await loop.getaddrinfo(
+                host,
+                port or (443 if parsed.scheme.lower() == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+            addresses = {ipaddress.ip_address(info[4][0]) for info in infos}
+        except (OSError, ValueError):
+            return "url 主机名解析失败", ""
+
+    if not addresses:
+        return "url 主机名没有可用地址", ""
+    if any(not address.is_global for address in addresses):
+        return "url 只能指向公网地址", ""
+    return None, normalized
+
+
 class QQBotMessageService(BaseService):
     """QQ 扩展消息发送服务。
 
@@ -101,8 +231,8 @@ class QQBotMessageService(BaseService):
     """
 
     service_name = "qqbot_message"
-    service_description = "发送 QQ 按钮菜单 / ark 卡片 / embed / 模板 Markdown / 引用回复"
-    version = "0.1.0"
+    service_description = "发送 QQ 按钮 / ark / embed / 模板 Markdown / 引用回复 / 富媒体消息"
+    version = "0.2.0"
 
     # ============ 内部工具 ============
 
@@ -122,6 +252,20 @@ class QQBotMessageService(BaseService):
             if target_type == TARGET_TYPE_USER
             else PATH_GROUP_MESSAGES
         )
+        return template.format(openid=target_id.strip())
+
+    @staticmethod
+    def _resolve_upload_path(target_type: str, target_id: str) -> str:
+        """把发送目标解析成富媒体上传路径。
+
+        Args:
+            target_type: ``"user"`` 或 ``"group"``。
+            target_id: 目标 openid。
+
+        Returns:
+            以 ``/`` 开头的相对路径。
+        """
+        template = PATH_USER_FILES if target_type == TARGET_TYPE_USER else PATH_GROUP_FILES
         return template.format(openid=target_id.strip())
 
     @staticmethod
@@ -477,6 +621,164 @@ class QQBotMessageService(BaseService):
             return payload
 
         return await self._guard_and_send(target_type, target_id, msg_seq, builder)
+
+    async def upload_media_from_url(
+        self,
+        target_type: str,
+        target_id: str,
+        file_type: int,
+        url: str,
+        *,
+        file_name: str = "",
+    ) -> dict[str, Any]:
+        """从公网 URL 上传图片、视频、语音或文件。
+
+        本方法只执行上传阶段，并固定使用 ``srv_send_msg=false``。取得的
+        ``file_info`` 只能用于相同目标场景，并应在 ``ttl`` 到期前使用。
+
+        Args:
+            target_type: ``"user"`` 或 ``"group"``。
+            target_id: 目标 openid。
+            file_type: 1 图片、2 视频、3 语音、4 文件。
+            url: QQ 平台可访问的公网 HTTP(S) URL。
+            file_name: 可选文件名。
+
+        Returns:
+            富媒体统一返回结构；成功时 ``media`` 包含上传元数据。
+        """
+        error = _validate_target(target_type, target_id) or _validate_media_file_type(
+            file_type
+        )
+        if error:
+            return _media_failure(error)
+        if not isinstance(file_name, str):
+            return _media_failure("file_name 必须是字符串")
+        url_error, normalized_url = await _validate_public_media_url(url)
+        if url_error:
+            return _media_failure(url_error)
+
+        payload: dict[str, Any] = {
+            "file_type": file_type,
+            "url": normalized_url,
+            "srv_send_msg": False,
+        }
+        if file_name.strip():
+            payload["file_name"] = file_name.strip()
+        result = await api_request(
+            self.plugin,
+            "POST",
+            self._resolve_upload_path(target_type, target_id),
+            payload,
+        )
+        if not result["success"]:
+            return _media_failure(result["error"])
+        media = _normalize_media_metadata(result["data"] or {})
+        if media is None:
+            return _media_failure("QQ API 上传响应缺少 file_info")
+        return {
+            "success": True,
+            "message_id": "",
+            "media": media,
+            "error": None,
+        }
+
+    async def send_media(
+        self,
+        target_type: str,
+        target_id: str,
+        file_info: str,
+        *,
+        msg_id: str = "",
+        event_id: str = "",
+        msg_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """发送已经上传完成的富媒体消息（``msg_type=7``）。
+
+        Args:
+            target_type: ``"user"`` 或 ``"group"``。
+            target_id: 目标 openid，必须与上传 ``file_info`` 时的场景一致。
+            file_info: QQ ``/files`` 接口返回的不透明数据。
+            msg_id: 被动回复关联的原始消息 id。
+            event_id: 被动回复关联的事件 id，与 ``msg_id`` 互斥。
+            msg_seq: 回复序号。
+
+        Returns:
+            富媒体统一返回结构；本方法不上传，因此 ``media`` 为 None。
+        """
+        error = (
+            _validate_target(target_type, target_id)
+            or _validate_msg_seq(msg_seq)
+            or _validate_passive_source(msg_id, event_id)
+        )
+        if error:
+            return _media_failure(error)
+        try:
+            payload: dict[str, Any] = {
+                "msg_type": MSG_TYPE_MEDIA,
+                "media": build_media(file_info),
+            }
+        except ValueError as exc:
+            return _media_failure(str(exc))
+        self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
+        result = await self._send(target_type, target_id, payload)
+        return {
+            "success": result["success"],
+            "message_id": result["message_id"],
+            "media": None,
+            "error": result["error"],
+        }
+
+    async def send_media_from_url(
+        self,
+        target_type: str,
+        target_id: str,
+        file_type: int,
+        url: str,
+        *,
+        file_name: str = "",
+        msg_id: str = "",
+        event_id: str = "",
+        msg_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """从公网 URL 上传并发送一条富媒体消息。
+
+        Args:
+            target_type: ``"user"`` 或 ``"group"``。
+            target_id: 目标 openid。
+            file_type: 1 图片、2 视频、3 语音、4 文件。
+            url: QQ 平台可访问的公网 HTTP(S) URL。
+            file_name: 可选文件名。
+            msg_id: 被动回复关联的原始消息 id。
+            event_id: 被动回复关联的事件 id，与 ``msg_id`` 互斥。
+            msg_seq: 回复序号。
+
+        Returns:
+            富媒体统一返回结构。发送失败但上传成功时仍保留 ``media``，调用方
+            可在 TTL 内用其中的 ``file_info`` 重试 ``send_media()``。
+        """
+        error = _validate_msg_seq(msg_seq) or _validate_passive_source(msg_id, event_id)
+        if error:
+            return _media_failure(error)
+        uploaded = await self.upload_media_from_url(
+            target_type,
+            target_id,
+            file_type,
+            url,
+            file_name=file_name,
+        )
+        if not uploaded["success"]:
+            return uploaded
+        media = uploaded["media"]
+        sent = await self.send_media(
+            target_type,
+            target_id,
+            media["file_info"],
+            msg_id=msg_id,
+            event_id=event_id,
+            msg_seq=msg_seq,
+        )
+        sent["media"] = media
+        return sent
 
     async def send_raw_message(
         self,

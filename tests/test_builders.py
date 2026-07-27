@@ -14,6 +14,7 @@ from ..src.builders import (
     build_embed,
     build_keyboard,
     build_markdown,
+    build_media,
     build_message_reference,
     cmd_enter,
     cmd_input,
@@ -29,6 +30,20 @@ from ..src.constants import (
     PERMISSION_TYPE_SPECIFY_ROLE,
     PERMISSION_TYPE_SPECIFY_USER,
 )
+
+
+class TestBuildMedia:
+    """富媒体结构构造。"""
+
+    def test_preserves_opaque_file_info(self) -> None:
+        """file_info 必须原样透传。"""
+        assert build_media(" opaque-data ") == {"file_info": " opaque-data "}
+
+    @pytest.mark.parametrize("file_info", ["", "   ", None, 1])
+    def test_rejects_invalid_file_info(self, file_info: object) -> None:
+        """file_info 必须是非空字符串。"""
+        with pytest.raises(ValueError, match="file_info"):
+            build_media(file_info)  # type: ignore[arg-type]
 
 
 class TestBuildButton:

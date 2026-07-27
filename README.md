@@ -3,8 +3,8 @@
 为 [`qqbot_adapter`](../qqbot_adapter) 补齐 QQ 开放平台的消息类型空白，并统一管理开放 API
 调用出口，供框架内部其他插件调用。
 
-`qqbot_adapter` 只实现了纯文本（`msg_type=0`）、原生 Markdown（`msg_type=2`）、
-富媒体（`msg_type=7`）三种出站消息，且唯一的 HTTP 出口 `SendHandler.post_api()`
+`qqbot_adapter` 实现了纯文本（`msg_type=0`）、原生 Markdown（`msg_type=2`）和
+富媒体底层出站链路（`msg_type=7`），且唯一的 HTTP 出口 `SendHandler.post_api()`
 **只支持 POST**。本插件在不修改适配器的前提下补上剩余部分：
 
 | 能力 | qqbot_adapter | qqbot_expand |
@@ -15,6 +15,7 @@
 | 引用回复（message_reference） | 无 | `qqbot_message.send_reply()` |
 | 文本内嵌交互标签 | 无 | `src/builders.py` 的 `at_user` / `cmd_enter` / `cmd_input` 等 |
 | embed（`msg_type=4`） | 无 | `qqbot_message.send_embed()`（QQ 侧当前不支持单聊/群聊，见下） |
+| 富媒体 URL 上传与发送（`msg_type=7`） | 底层出站/分片能力 | `upload_media_from_url()` / `send_media()` / `send_media_from_url()` |
 | GET / PUT / DELETE 接口 | 无 | `qqbot_raw.request()` |
 | 互动回调应答 | 自动 `code=0` | `qqbot_interaction.ack()`（见下方限制） |
 
@@ -68,7 +69,7 @@ token 仍向适配器索取。该客户端挂在插件实例上（`BaseService` 
 - `msg_seq`：与 `msg_id` 联合使用的回复序号，相同 `msg_id + msg_seq` 重复发送会失败；
   带 `msg_id` 时缺省填 1
 
-返回体统一为 `{"success": bool, "message_id": str, "error": str | None}`。
+富媒体方法在上述字段外增加 `media` 上传元数据；详见 [API 参考](docs/api-reference.md)。
 
 | 方法 | 说明 |
 | --- | --- |
@@ -77,6 +78,9 @@ token 仍向适配器索取。该客户端挂在插件实例上（`BaseService` 
 | `send_markdown_template(target_type, target_id, custom_template_id, params=None, *, rows=None, ...)` | 发已报备的模板 Markdown，可附带按钮 |
 | `send_reply(target_type, target_id, content, reference_message_id, *, ignore_get_message_error=False, ...)` | 带引用的文本回复 |
 | `send_embed(target_type, target_id, title, ...)` | 发 embed（`msg_type=4`）。**QQ 侧单聊/群聊均不支持**，保留仅为未来兼容 |
+| `upload_media_from_url(target_type, target_id, file_type, url, *, file_name="")` | 上传公网 URL，返回目标隔离且带 TTL 的 `file_info`，不直接发送 |
+| `send_media(target_type, target_id, file_info, ...)` | 使用已有 `file_info` 发送富媒体（`msg_type=7`） |
+| `send_media_from_url(target_type, target_id, file_type, url, ...)` | 按官方两阶段协议完成上传并发送；支持图片、视频、语音、文件 |
 | `send_raw_message(target_type, target_id, payload)` | 直接投递完整消息体，用于尚未包装的形态 |
 
 ```python
@@ -95,7 +99,7 @@ result = await msg.send_keyboard("group", group_openid, rows, content="请选择
 
 `src/builders.py` 里的构造函数可以自由复用，它们只做数据拼装与校验，不发请求：
 `build_button` / `build_keyboard` / `build_ark` / `build_embed` / `build_markdown` /
-`build_message_reference`，以及文本内嵌标签辅助 `at_user` / `at_everyone` / `emoji` /
+`build_message_reference` / `build_media`，以及文本内嵌标签辅助 `at_user` / `at_everyone` / `emoji` /
 `cmd_enter` / `cmd_input`。
 
 ### `qqbot_expand:service:qqbot_raw`
