@@ -64,7 +64,7 @@ group_admin_allowed_group_openids = ["目标群 OpenID"]
 
 本轮 Expand 不消费 `GROUP_JOIN_REQUEST`。Adapter 请自行完成以下交接：识别该 Dispatch，不生成 `MessageEnvelope`、不自动审批，以深拷贝 `raw_event` 发布 `qqbot_adapter.group_join_request`，并标准化 `group_openid`、`join_request_id`、`member_openid`、申请来源、验证信息和自动审批信息。该事件仍使用 `GROUP_AND_C2C_EVENT (1<<25)`，只有机器人为群管理员时可收到。
 
-官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 端点统一为 `api.bot.qq.com`；请同步迁移 Adapter。Expand 的非 POST 请求已使用新域名。
+官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 端点统一为 `api.bot.qq.com`；Expand 与 Adapter 已使用统一域名。`env` 仍表示 sandbox/production 平台环境，不再选择旧域名。
 
 ---
 

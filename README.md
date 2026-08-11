@@ -81,7 +81,7 @@ LLM 仅可在显式启用 `features.enable_group_admin_tools=true` 后使用当�
 
 ### 平台域名迁移
 
-Expand 的非 POST API 基址已使用 `https://api.bot.qq.com`。请同时按本仓库 [使用教程](docs/usage-guide.md) 的交接清单迁移 Adapter 的 REST/Gateway/WSS 基址；在 Adapter 尚未迁移前，POST 和 Gateway 仍可能继续使用旧域名。AccessToken 地址仍为 `https://bots.qq.com/app/getAppAccessToken`。
+Expand 与 `qqbot_adapter` 均遵循 QQ 官方统一域名：sandbox 与 production 的 REST、Gateway、WebSocket 和 AccessToken 均使用 `api.bot.qq.com`。Expand 的 POST 请求委托 Adapter，非 POST 请求复用 Adapter 当前 `base_url`；`env` 仍表示平台运行环境，不再选择旧域名。
 
 | 方法 | 说明 |
 | --- | --- |
@@ -203,8 +203,8 @@ Gateway 重复投递、外部 Service 调用和网络超时场景下都不会重
 Gateway 的事件发布。目标 openid 无法确认或为当前不支持回复的 guild 时，只 ACK 并记录日志。
 
 外部调用方不应对已由 EventHandler 接管的 interaction ID 再调用 `ack()`。未安装或未启用
-Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互动应答接口仍只在正式域名
-`api.sgroup.qq.com` 可用。
+Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互动应答接口使用统一的
+`api.bot.qq.com` 域名；若 QQ 平台仍限制其沙箱能力，应按平台能力错误处理，而不切换到旧域名。
 
 
 ## 安全说明

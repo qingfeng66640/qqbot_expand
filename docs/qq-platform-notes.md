@@ -76,7 +76,7 @@
 
 `GROUP_JOIN_REQUEST` 使用已有 `GROUP_AND_C2C_EVENT (1<<25)`，不新增 intent。Expand 当前只提供 Service/API 封装，不消费事件或自动审批；Adapter 应发布 `qqbot_adapter.group_join_request` 后，再由后续受信工作流接入。
 
-官方已统一 API 与 Gateway 域名为 `api.bot.qq.com`；AccessToken 仍走 `bots.qq.com`。Expand 非 POST 调用使用新域名，Adapter 的 POST、Gateway discovery 和 fallback WSS 必须由 Adapter 维护者同步迁移。
+官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 域名统一为 `api.bot.qq.com`。sandbox 与 production 使用同一网络主机，但仍代表不同的平台运行环境和权限范围。Expand 的 POST 请求委托 Adapter，非 POST 请求复用 Adapter 当前 `base_url`。
 
 ## 频控规则
 
@@ -195,7 +195,7 @@
 - Expand 在请求前以 TTL/容量有界表去重；网络 timeout 也不自动重试
 - 业务消息回复使用 `event_id=interaction_id`，不得使用 `msg_id` 或同时传两者
 - 按钮 `action.type=1` 与事件顶层 `type=11/12` 是两套不同枚举
-- 该接口仅正式域名 `api.sgroup.qq.com` 可用
+- 该接口使用统一域名 `api.bot.qq.com`；若平台限制沙箱能力，应按接口返回的能力错误处理，不切换到旧域名
 
 错误码：630001 参数非法、630002~630006 appid / header 相关、630007 数据过大、
 630008 互动预处理失败。
