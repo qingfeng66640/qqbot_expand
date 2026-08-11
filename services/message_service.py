@@ -325,9 +325,13 @@ class QQBotMessageService(BaseService):
         if not result["success"]:
             return _failure(result["error"])
         data = result["data"] or {}
+        message_id = str(data.get("id", ""))
+        registry = getattr(self.plugin, "sent_messages", None)
+        if registry is not None:
+            registry.record(message_id, target_type, target_id)
         return {
             "success": True,
-            "message_id": str(data.get("id", "")),
+            "message_id": message_id,
             "error": None,
         }
 

@@ -67,14 +67,13 @@
 常见上传/发送错误：`850019` 格式不支持、`850026` 下载 URL 失败、`850031` 超尺寸、
 `40093002` 当日累计上传超限、`304080` file_info 无效、`40034004` 富媒体转存失败。
 
-本地分片上传预留为后续能力，当前不可调用；需先确认适配器分片索引实现与最新官方
-0-based `parts[].index` 协议一致。
+本地分片上传由 `qqbot_chunked_media.upload_bytes()` 提供，仅接受受信插件传入的内存 bytes，限制 200 MB。它严格校验连续 0-based `parts[].index`、HTTPS 预签名 URL 和服务端分片大小，不向 LLM 暴露本地文件路径或预签名 URL。
 
 ## 群管理（2026-08-10）
 
 机器人必须是群管理员才可使用入群审批、成员禁言和接收 `GROUP_JOIN_REQUEST`。自动审批策略最多 20 个，每个策略最多关联 100 个群；策略、审批和禁言接口通常限 60 QPM，入群申请列表限 30 QPM。
 
-`GROUP_JOIN_REQUEST` 使用已有 `GROUP_AND_C2C_EVENT (1<<25)`，不新增 intent。Expand 当前只提供 Service/API 封装，不消费事件或自动审批；Adapter 应发布 `qqbot_adapter.group_join_request` 后，再由后续受信工作流接入。
+`GROUP_JOIN_REQUEST` 使用已有 `GROUP_AND_C2C_EVENT (1<<25)`，不新增 intent。Expand 的 `qqbot_group_join_request` EventHandler 消费 Adapter 发布的 `qqbot_adapter.group_join_request`，按 `join_request_id` 去重后调度受信回调；默认不自动审批。Adapter 必须提供稳定事件契约，且机器人仍需是群管理员。
 
 官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 域名统一为 `api.bot.qq.com`。sandbox 与 production 使用同一网络主机，但仍代表不同的平台运行环境和权限范围。Expand 的 POST 请求委托 Adapter，非 POST 请求复用 Adapter 当前 `base_url`。
 

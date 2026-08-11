@@ -82,6 +82,18 @@ class QQBotGroupAdminService(BaseService):
             return failure("群管理 Service 未启用")
         return await api_request(self.plugin, method, path, body, query=query)
 
+    async def register_join_request_callback(
+        self, name: str, callback: Any, *, replace: bool = False
+    ) -> bool:
+        """注册受信入群申请事件回调，不执行自动审批。"""
+        runtime = getattr(self.plugin, "join_request_runtime", None)
+        return bool(runtime and await runtime.register(name, callback, replace=replace))
+
+    async def unregister_join_request_callback(self, name: str) -> bool:
+        """注销受信入群申请事件回调。"""
+        runtime = getattr(self.plugin, "join_request_runtime", None)
+        return bool(runtime and await runtime.unregister(name))
+
     async def list_join_approval_strategies(
         self, cursor: str = "", limit: int = 20
     ) -> dict[str, Any]:

@@ -8,11 +8,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ..config import QQBotExpandConfig
-from ..handlers import QQBotInteractionEventHandler
+from ..handlers import QQBotGroupJoinRequestEventHandler, QQBotInteractionEventHandler
 from ..plugin import QQBotExpandPlugin
 from ..services import ALL_SERVICES
 from ..src.bridge import ADAPTER_SIGNATURE, resolve_send_handler
-from ..tools import ALL_GROUP_ADMIN_TOOLS, ALL_TOOLS
+from ..tools import (
+    ALL_GROUP_ADMIN_TOOLS,
+    ALL_GROUP_INFO_TOOLS,
+    ALL_TOOLS,
+    ALL_UTILITY_TOOLS,
+)
 
 PLUGIN_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 
@@ -40,8 +45,11 @@ class TestManifestConsistency:
         actual = (
             {("service", svc.service_name) for svc in ALL_SERVICES}
             | {("tool", tool.tool_name) for tool in ALL_TOOLS}
+            | {("tool", tool.tool_name) for tool in ALL_GROUP_INFO_TOOLS}
+            | {("tool", tool.tool_name) for tool in ALL_UTILITY_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_GROUP_ADMIN_TOOLS}
             | {("event_handler", QQBotInteractionEventHandler.name)}
+            | {("event_handler", QQBotGroupJoinRequestEventHandler.name)}
         )
         assert declared == actual
 
@@ -101,7 +109,8 @@ class TestPluginLifecycle:
         plugin = QQBotExpandPlugin(QQBotExpandConfig())
         components = plugin.get_components()
         assert set(components) == set(ALL_SERVICES) | set(ALL_TOOLS) | {
-            QQBotInteractionEventHandler
+            QQBotInteractionEventHandler,
+            QQBotGroupJoinRequestEventHandler,
         }
 
     def test_tools_can_be_disabled(self) -> None:
@@ -110,7 +119,8 @@ class TestPluginLifecycle:
         config.features.enable_tools = False
         plugin = QQBotExpandPlugin(config)
         assert set(plugin.get_components()) == set(ALL_SERVICES) | {
-            QQBotInteractionEventHandler
+            QQBotInteractionEventHandler,
+            QQBotGroupJoinRequestEventHandler,
         }
 
     def test_http_client_absent_before_load(self) -> None:

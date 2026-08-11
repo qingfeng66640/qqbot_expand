@@ -270,8 +270,7 @@ async def send_media_from_url(
 依次执行 `/files` 上传和 `/messages` 发送。上传失败时不会发送；上传成功但发送失败时，
 返回值仍保留 `media.file_info`，可在 TTL 内直接调用 `send_media()` 重试，避免重复上传。
 
-> 本地文件分片上传预留为未来的 `send_media_from_local_file` 能力，当前不可调用。
-> 原因是依赖适配器的公开分片链路仍需按最新官方 0-based 分片索引协议完成验证。
+本地分片上传由受信 Service `qqbot_chunked_media.upload_bytes()` 提供：只接受内存 `bytes`，限制 200 MB，按官方 0-based `parts[].index` 上传，校验 HTTPS 预签名 URL 后回传 `file_info`。它不接受 LLM 本地路径，也不注册为 Tool。
 
 ---
 
@@ -287,6 +286,52 @@ async def send_raw_message(
 
 直接投递完整消息体，用于本 Service 未包装的形态。`payload` 必须是非空字典且含
 `msg_type` 字段，其余结构由调用方自行保证。
+
+---
+
+## Service: `qqbot_expand:service:qqbot_group_info`
+
+只读群信息 Service，受 `features.enable_group_info_service` 控制。
+
+| 方法 | HTTP | 说明 |
+|---|---|---|
+| `get_group_info(group_openid)` | GET | 查询群 OpenID、名称、简介、分类、标签和成员数，30 QPM，可能需要平台白名单 |
+| `get_bot_group_state(group_openid)` | GET | 查询机器人角色、入群时间、主动推送许可和接收设置，30 QPM，可能需要平台白名单 |
+
+`qq_get_current_group_info` 与 `qq_get_current_group_bot_state` 仅在 `enable_group_info_tools=true` 时注册，目标从触发群推导，不能让 LLM 指定群。
+
+---
+
+## Service: `qqbot_expand:service:qqbot_utility`
+
+| 方法 | HTTP | 说明 |
+|---|---|---|
+| `recall_message(target_type, target_id, message_id)` | DELETE | 仅允许撤回本插件记录、目标一致且发送未超过两分钟的消息 |
+| `generate_share_link(url_link="", callback_data="")` | POST | 生成机器人分享链接；`callback_data` 最长 32 字符 |
+
+`qq_recall_current_message` 还要求显式 `confirm=True`。两个 Utility Tool 默认关闭，由 `enable_utility_tools=true` 启用。
+
+---
+
+## Service: `qqbot_expand:service:qqbot_chunked_media`
+
+```python
+async def upload_bytes(
+    target_type: str,
+    target_id: str,
+    file_type: int,
+    file_name: str,
+    content: bytes,
+) -> dict[str, Any]
+```
+
+按 `upload_prepare → 预签名 URL PUT → upload_part_finish → /files 合并` 上传本地内存字节。仅供受信插件使用：最大 200 MB，不接受文件路径，不暴露预签名 URL，也不注册 LLM Tool。
+
+---
+
+## `GROUP_JOIN_REQUEST` 回调
+
+`qqbot_group_admin.register_join_request_callback(name, callback, replace=False)` 注册受信回调，Adapter 事件 `qqbot_adapter.group_join_request` 会按 `join_request_id` 去重后交给 TaskManager 调度。默认只通知，不会自动批准或拒绝；回调需显式调用群管理 Service，且仍受群管理员身份和本插件配置约束。
 
 ---
 

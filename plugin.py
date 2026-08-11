@@ -20,18 +20,26 @@ from src.app.plugin_system.api.log_api import get_logger
 from src.app.plugin_system.base import BaseConfig, BasePlugin, register_plugin
 
 from .config import QQBotExpandConfig
+from .handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
 from .src.interaction import InteractionRuntime
+from .src.join_requests import JoinRequestRuntime
+from .src.sent_messages import SentMessageRegistry
+from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
+from .services.group_info_service import QQBotGroupInfoService
 from .services.interaction_service import QQBotInteractionService
 from .services.message_service import QQBotMessageService
 from .services.raw_service import QQBotRawService
+from .services.utility_service import QQBotUtilityService
 from .tools import ALL_TOOLS
 from .tools.group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
+from .tools.group_info import QQGetCurrentGroupBotStateTool, QQGetCurrentGroupInfoTool
 from .tools.send_ark import QQSendArkTool
 from .tools.send_keyboard import QQSendKeyboardTool
 from .tools.send_reply import QQSendReplyTool
+from .tools.utility import QQGenerateShareLinkTool, QQRecallCurrentMessageTool
 
 logger = get_logger("qqbot_expand")
 
@@ -49,7 +57,7 @@ class QQBotExpandPlugin(BasePlugin):
 
     plugin_name = "qqbot_expand"
     plugin_description = "为 qqbot_adapter 补齐按钮/ark/embed/模板 Markdown 等消息类型，并提供统一的 QQ 开放 API 调用通道"
-    plugin_version = "0.3.0"
+    plugin_version = "0.4.0"
     configs = [QQBotExpandConfig]
 
     def __init__(self, config: BaseConfig | None = None) -> None:
@@ -61,6 +69,8 @@ class QQBotExpandPlugin(BasePlugin):
         super().__init__(config)
         self.http_client: httpx.AsyncClient | None = None
         self.interaction_runtime = InteractionRuntime(self)
+        self.join_request_runtime = JoinRequestRuntime(self)
+        self.sent_messages = SentMessageRegistry()
 
     def get_components(self) -> list[type]:
         """返回插件注册的全部组件。
@@ -75,15 +85,25 @@ class QQBotExpandPlugin(BasePlugin):
         # 以便 mpdt 的 ComponentValidator 能静态解析出组件清单。
         components = [
             QQBotMessageService,
+            QQBotChunkedMediaService,
             QQBotGroupAdminService,
+            QQBotGroupInfoService,
             QQBotInteractionService,
             QQBotRawService,
+            QQBotUtilityService,
             QQBotInteractionEventHandler,
+            QQBotGroupJoinRequestEventHandler,
         ]
         if self._tools_enabled():
             components.append(QQSendKeyboardTool)
             components.append(QQSendArkTool)
             components.append(QQSendReplyTool)
+        if self._group_info_tools_enabled():
+            components.append(QQGetCurrentGroupInfoTool)
+            components.append(QQGetCurrentGroupBotStateTool)
+        if self._utility_tools_enabled():
+            components.append(QQRecallCurrentMessageTool)
+            components.append(QQGenerateShareLinkTool)
         if self._group_admin_tools_enabled():
             components.append(QQReviewGroupJoinRequestTool)
             components.append(QQSetGroupMemberMuteTool)
@@ -92,6 +112,7 @@ class QQBotExpandPlugin(BasePlugin):
     async def on_plugin_loaded(self) -> None:
         """插件加载时重置互动运行时并创建共享 httpx 客户端。"""
         await self.interaction_runtime.reset()
+        await self.join_request_runtime.close()
         http_cfg = getattr(self.config, "http", None)
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -146,6 +167,10 @@ class QQBotExpandPlugin(BasePlugin):
             await self.interaction_runtime.close()
         except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出
             logger.warning(f"关闭互动运行时失败: {exc}")
+        try:
+            await self.join_request_runtime.close()
+        except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出
+            logger.warning(f"关闭入群申请运行时失败: {exc}")
         if self.http_client is not None:
             try:
                 await self.http_client.aclose()
@@ -168,6 +193,20 @@ class QQBotExpandPlugin(BasePlugin):
         """
         features = getattr(self.config, "features", None)
         return bool(getattr(features, "enable_tools", True))
+
+    def _utility_tools_enabled(self) -> bool:
+        """仅在显式启用时注册撤回与分享链接 Tool。"""
+        features = getattr(self.config, "features", None)
+        return self._tools_enabled() and bool(
+            getattr(features, "enable_utility_tools", False)
+        )
+
+    def _group_info_tools_enabled(self) -> bool:
+        """仅在显式启用时注册当前群信息 Tool。"""
+        features = getattr(self.config, "features", None)
+        return self._tools_enabled() and bool(
+            getattr(features, "enable_group_info_tools", False)
+        )
 
     def _group_admin_tools_enabled(self) -> bool:
         """仅在显式启用且配置目标群白名单时注册群管理 Tool。"""

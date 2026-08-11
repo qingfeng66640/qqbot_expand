@@ -19,6 +19,10 @@
 | 富媒体 URL 上传与发送（`msg_type=7`） | 底层出站/分片能力 | `upload_media_from_url()` / `send_media()` / `send_media_from_url()` |
 | GET / PUT / PATCH / DELETE 接口 | 无 | `qqbot_raw.request()` |
 | 群入群审批策略、申请审批、成员禁言 | 无 | `qqbot_group_admin` Service；受控审批/禁言 Tool |
+| 当前群信息、Bot 群内状态 | 无 | `qqbot_group_info` Service；当前群只读 Tool |
+| 近期消息撤回、机器人分享链接 | 无 | `qqbot_utility` Service；显式开关的受控 Tool |
+| 本地 bytes 分片媒体上传 | 无 | `qqbot_chunked_media` 受信 Service |
+| 群入群申请事件 | 发布 `qqbot_adapter.group_join_request` | 去重分发受信回调，不自动审批 |
 | 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
 ## 依赖
@@ -35,6 +39,7 @@
 | [使用教程](docs/usage-guide.md) | **从这里开始** —— 五分钟跑通、各类消息怎么发、踩坑指南 |
 | [API 参考](docs/api-reference.md) | 逐个签名的参数表、返回结构、配置项、错误值对照 |
 | [QQ 平台能力与限制](docs/qq-platform-notes.md) | 字段级平台规则，实现中各种校验的依据 |
+| [能力路线图](docs/roadmap.md) | 已完成能力、真实环境验证与后续强化项 |
 
 ## 架构
 
@@ -127,6 +132,15 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
   返回 `{"success": bool, "data": dict | None, "error": str | None}`
 - `get_status()` 转发 `qqbot_adapter:service:qqbot` 的状态，并附加
   `http_client_ready` / `raw_enabled`
+
+### 新增 Service 与 Tool 边界
+
+- `qqbot_group_info.get_group_info()` / `get_bot_group_state()`：受信插件可查询任意合法群 OpenID；对应 Tool 只查询触发群，且返回 `group_openid`。
+- `qqbot_utility.recall_message()`：仅撤回本插件记录的、目标匹配且未超过两分钟的消息；`qq_recall_current_message` 还要求 `confirm=True`。`generate_share_link()` 的 `callback_data` 最长 32 字符。
+- `qqbot_chunked_media.upload_bytes()`：只面向受信调用方的内存 `bytes`，限制 200 MB，校验 HTTPS 预签名 URL 与连续 0-based 分片；不注册为 Tool。
+- `qqbot_group_admin.register_join_request_callback()`：消费 Adapter 已发布的 `qqbot_adapter.group_join_request`，按 `join_request_id` 去重后经 TaskManager 调用受信回调，默认绝不自动审批。
+
+群信息与实用 Tool 默认关闭，分别通过 `features.enable_group_info_tools` 和 `features.enable_utility_tools` 启用。
 
 ### `qqbot_expand:service:qqbot_interaction`
 
@@ -222,9 +236,15 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `plugin.enabled` | `true` | 插件总开关 |
-| `features.enable_tools` | `true` | 是否把三个精选 Tool 注册给 LLM |
+| `features.enable_tools` | `true` | 是否把基础精选 Tool 注册给 LLM |
+| `features.enable_group_info_service` | `true` | 是否启用只读群信息 Service |
+| `features.enable_group_info_tools` | `false` | 是否注册当前群信息/机器人状态 Tool |
+| `features.enable_utility_tools` | `false` | 是否注册撤回与分享链接 Tool |
+| `features.enable_group_admin_service` | `false` | 是否启用高权限群管理 Service |
+| `features.enable_group_admin_tools` | `false` | 是否注册群审批/禁言 Tool |
+| `features.group_admin_allowed_group_openids` | `[]` | 群管理 Tool 可操作的群 OpenID 白名单 |
 | `features.allow_raw_request` | `true` | raw 通道总开关 |
-| `features.raw_allowed_methods` | `["GET","POST","PUT","DELETE"]` | raw 通道允许的方法白名单 |
+| `features.raw_allowed_methods` | `["GET","POST","PUT","PATCH","DELETE"]` | raw 通道允许的方法白名单 |
 | `features.debug_log_payload` | `false` | 打印完整请求体（含敏感内容，仅调试用） |
 | `interaction.enabled` | `true` | 是否消费 Adapter 发布的 Interaction 事件 |
 | `interaction.callback_timeout` | `5.0` | 权限与业务 callback 的单次超时（秒） |

@@ -143,6 +143,9 @@ def make_plugin(
     enable_tools: bool = True,
     enable_group_admin_service: bool = True,
     enable_group_admin_tools: bool = True,
+    enable_group_info_service: bool = True,
+    enable_group_info_tools: bool = False,
+    enable_utility_tools: bool = False,
     group_admin_allowed_group_openids: list[str] | None = None,
     callback_timeout: float = 5.0,
     button_data_max_length: int = 1024,
@@ -169,6 +172,9 @@ def make_plugin(
         else ["GET", "POST", "PUT", "PATCH", "DELETE"],
         enable_group_admin_service=enable_group_admin_service,
         enable_group_admin_tools=enable_group_admin_tools,
+        enable_group_info_service=enable_group_info_service,
+        enable_group_info_tools=enable_group_info_tools,
+        enable_utility_tools=enable_utility_tools,
         group_admin_allowed_group_openids=group_admin_allowed_group_openids or [],
         debug_log_payload=debug_log_payload,
     )
@@ -195,6 +201,9 @@ def make_plugin(
     from ..src.interaction import InteractionRuntime
 
     plugin.interaction_runtime = InteractionRuntime(plugin)
+    from ..src.sent_messages import SentMessageRegistry
+
+    plugin.sent_messages = SentMessageRegistry()
     return plugin
 
 

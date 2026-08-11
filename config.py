@@ -61,6 +61,28 @@ class QQBotExpandConfig(BaseConfig):
             depends_on="allow_raw_request",
             depends_value=True,
         )
+        enable_utility_tools: bool = Field(
+            default=False,
+            description="是否向 LLM 注册消息撤回与机器人分享链接工具",
+            label="启用实用 LLM 工具",
+            tag="security",
+            depends_on="enable_tools",
+            depends_value=True,
+        )
+        enable_group_info_service: bool = Field(
+            default=True,
+            description="是否允许调用只读群信息与机器人群内状态 Service",
+            label="启用群信息 Service",
+            tag="general",
+        )
+        enable_group_info_tools: bool = Field(
+            default=False,
+            description="是否向 LLM 注册当前群信息与机器人状态查询工具",
+            label="启用群信息 LLM 工具",
+            tag="general",
+            depends_on="enable_tools",
+            depends_value=True,
+        )
         enable_group_admin_service: bool = Field(
             default=False,
             description="是否允许受信插件调用高权限群管理 Service",

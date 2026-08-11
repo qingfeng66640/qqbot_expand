@@ -1,7 +1,7 @@
 {
     "name": "qqbot_expand",
     "display_name": "QQ Bot 扩展能力",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "为 qqbot_adapter 补齐按钮键盘、ark 卡片、embed、模板 Markdown、引用回复和富媒体 Service，并提供统一的 QQ 开放 API 调用通道。",
     "author": "qf",
     "maintainers": [
@@ -35,7 +35,19 @@
         },
         {
             "component_type": "service",
+            "component_name": "qqbot_chunked_media",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "service",
             "component_name": "qqbot_group_admin",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "service",
+            "component_name": "qqbot_group_info",
             "dependencies": [],
             "enabled": true
         },
@@ -52,8 +64,44 @@
             "enabled": true
         },
         {
+            "component_type": "service",
+            "component_name": "qqbot_utility",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
             "component_type": "event_handler",
             "component_name": "qqbot_interaction",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "event_handler",
+            "component_name": "qqbot_group_join_request",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "tool",
+            "component_name": "qq_get_current_group_info",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "tool",
+            "component_name": "qq_get_current_group_bot_state",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "tool",
+            "component_name": "qq_recall_current_message",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "tool",
+            "component_name": "qq_generate_share_link",
             "dependencies": [],
             "enabled": true
         },
