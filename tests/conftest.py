@@ -92,7 +92,7 @@ class FakeHttpClient:
 class FakeSendHandler:
     """qqbot_adapter SendHandler 的替身。"""
 
-    def __init__(self, base_url: str = "https://sandbox.api.sgroup.qq.com") -> None:
+    def __init__(self, base_url: str = "https://api.bot.qq.com") -> None:
         """初始化 SendHandler 替身。
 
         Args:

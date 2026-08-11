@@ -55,10 +55,10 @@ class TestSanitizeError:
 
     def test_never_leaks_secrets(self) -> None:
         """原始文本中的 token / URL 一律不得出现在返回值里。"""
-        raw = "POST https://api.sgroup.qq.com/v2/users/x/messages failed: QQBot s3cr3t-token"
+        raw = "POST https://api.bot.qq.com/v2/users/x/messages failed: QQBot s3cr3t-token"
         sanitized = sanitize_error(raw)
         assert "s3cr3t-token" not in sanitized
-        assert "api.sgroup.qq.com" not in sanitized
+        assert "api.bot.qq.com" not in sanitized
 
     def test_result_is_always_whitelisted(self) -> None:
         """任意输入的输出都必须落在白名单集合内。"""

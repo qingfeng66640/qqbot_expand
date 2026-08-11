@@ -87,14 +87,14 @@ class TestBuildUrl:
 
     def test_basic(self) -> None:
         """基础地址与路径直接拼接。"""
-        assert build_url("https://api.sgroup.qq.com", "/users/@me") == (
-            "https://api.sgroup.qq.com/users/@me"
+        assert build_url("https://api.bot.qq.com", "/users/@me") == (
+            "https://api.bot.qq.com/users/@me"
         )
 
     def test_strips_trailing_slash(self) -> None:
         """基础地址尾部斜杠不应产生双斜杠。"""
-        assert build_url("https://api.sgroup.qq.com/", "/x") == (
-            "https://api.sgroup.qq.com/x"
+        assert build_url("https://api.bot.qq.com/", "/x") == (
+            "https://api.bot.qq.com/x"
         )
 
     def test_query_is_encoded(self) -> None:
@@ -127,7 +127,7 @@ class TestApiRequestRouting:
         assert result["data"] == {"id": "msg-1", "timestamp": 1}
         assert client.calls == []
         url, headers, body = patch_send_handler.posts[0]
-        assert url == "https://sandbox.api.sgroup.qq.com/v2/users/u1/messages"
+        assert url == "https://api.bot.qq.com/v2/users/u1/messages"
         assert headers["Authorization"] == "QQBot fake-token"
         assert headers["Content-Type"] == "application/json"
         assert body == {"a": 1}
