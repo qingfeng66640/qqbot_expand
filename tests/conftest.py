@@ -141,6 +141,13 @@ def make_plugin(
     raw_allowed_methods: list[str] | None = None,
     debug_log_payload: bool = False,
     enable_tools: bool = True,
+    enable_group_admin_service: bool = True,
+    enable_group_admin_tools: bool = True,
+    group_admin_allowed_group_openids: list[str] | None = None,
+    callback_timeout: float = 5.0,
+    button_data_max_length: int = 1024,
+    dedup_ttl: float = 300.0,
+    dedup_capacity: int = 4096,
 ) -> SimpleNamespace:
     """构造一个满足 Service 依赖的插件替身。
 
@@ -159,7 +166,10 @@ def make_plugin(
         allow_raw_request=allow_raw_request,
         raw_allowed_methods=raw_allowed_methods
         if raw_allowed_methods is not None
-        else ["GET", "POST", "PUT", "DELETE"],
+        else ["GET", "POST", "PUT", "PATCH", "DELETE"],
+        enable_group_admin_service=enable_group_admin_service,
+        enable_group_admin_tools=enable_group_admin_tools,
+        group_admin_allowed_group_openids=group_admin_allowed_group_openids or [],
         debug_log_payload=debug_log_payload,
     )
     http = SimpleNamespace(
@@ -168,10 +178,24 @@ def make_plugin(
         retry_backoff_max=0.0,
         retry_jitter=0.0,
     )
-    return SimpleNamespace(
-        config=SimpleNamespace(features=features, http=http),
+    plugin = SimpleNamespace(
+        config=SimpleNamespace(
+            features=features,
+            http=http,
+            interaction=SimpleNamespace(
+                enabled=True,
+                callback_timeout=callback_timeout,
+                button_data_max_length=button_data_max_length,
+                dedup_ttl=dedup_ttl,
+                dedup_capacity=dedup_capacity,
+            ),
+        ),
         http_client=http_client,
     )
+    from ..src.interaction import InteractionRuntime
+
+    plugin.interaction_runtime = InteractionRuntime(plugin)
+    return plugin
 
 
 @pytest.fixture

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import random
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from src.app.plugin_system.api.log_api import get_logger
 
@@ -102,6 +102,13 @@ def resolve_send_handler() -> Any | None:
 # ============ 路径与 URL ============
 
 
+def encode_path_segment(value: str, name: str) -> tuple[str | None, str]:
+    """校验并编码相对 API 路径中的单个外部参数。"""
+    if not isinstance(value, str) or not value.strip():
+        return f"{name} 不能为空", ""
+    return None, quote(value.strip(), safe="")
+
+
 def validate_path(path: str) -> str | None:
     """校验 API 路径的合法性。
 
@@ -157,6 +164,7 @@ async def api_request(
     *,
     query: dict[str, Any] | None = None,
     force_production: bool = False,
+    retry_network_errors: bool = True,
 ) -> dict[str, Any]:
     """向 QQ 开放平台发起一次 API 请求。
 
@@ -167,6 +175,7 @@ async def api_request(
         body: 请求体（POST / PUT 用）。
         query: 查询参数（GET / DELETE 用）。
         force_production: 强制使用正式域名。互动 ACK 等接口沙箱不支持，需置 True。
+        retry_network_errors: 网络异常时是否按配置重试；ACK 等一次性操作应置 False。
 
     Returns:
         ``{"success": bool, "data": dict | None, "error": str | None}``。
@@ -191,7 +200,14 @@ async def api_request(
 
     if normalized_method == "POST":
         return await _request_via_adapter(send_handler, url, body or {})
-    return await _request_via_http(plugin, send_handler, normalized_method, url, body)
+    return await _request_via_http(
+        plugin,
+        send_handler,
+        normalized_method,
+        url,
+        body,
+        retry_network_errors=retry_network_errors,
+    )
 
 
 def _should_log_payload(plugin: Any) -> bool:
@@ -267,6 +283,8 @@ async def _request_via_http(
     method: str,
     url: str,
     body: dict[str, Any] | None,
+    *,
+    retry_network_errors: bool = True,
 ) -> dict[str, Any]:
     """走本插件自持的 httpx 客户端发送非 POST 请求。
 
@@ -285,6 +303,8 @@ async def _request_via_http(
         return failure("HTTP 客户端未初始化，请确认插件已正确加载")
 
     max_attempts, backoff_base, backoff_max, jitter = _retry_settings(plugin)
+    if not retry_network_errors:
+        max_attempts = 0
     last_error = ERROR_GENERIC
 
     for attempt in range(max_attempts + 1):

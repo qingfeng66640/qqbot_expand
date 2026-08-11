@@ -12,15 +12,24 @@
 """
 from __future__ import annotations
 
+from .group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
 from .send_ark import QQSendArkTool
 from .send_keyboard import QQSendKeyboardTool
 from .send_reply import QQSendReplyTool
 
 __all__ = [
+    "ALL_GROUP_ADMIN_TOOLS",
     "ALL_TOOLS",
+    "QQReviewGroupJoinRequestTool",
+    "QQSetGroupMemberMuteTool",
     "QQSendArkTool",
     "QQSendKeyboardTool",
     "QQSendReplyTool",
+]
+
+ALL_GROUP_ADMIN_TOOLS: list[type] = [
+    QQReviewGroupJoinRequestTool,
+    QQSetGroupMemberMuteTool,
 ]
 
 ALL_TOOLS: list[type] = [

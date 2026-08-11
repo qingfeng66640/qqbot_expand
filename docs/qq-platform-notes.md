@@ -34,6 +34,8 @@
 | `event_id` | string | 前置事件 ID，支持 `INTERACTION_CREATE`、`C2C_MSG_RECEIVE`、`GROUP_MSG_RECEIVE` 等 |
 | `msg_seq` | int | 与 `msg_id` 联合使用，相同组合重复发送会失败，不填默认 1 |
 
+`force_verify_image_resource` 是 Markdown 消息新增的可选 boolean。默认 `false` 时，图片转存失败可能被平台静默忽略而消息继续发送；传 `true` 时，任何图片资源转存失败都会中断整条消息并返回错误。`send_keyboard()` 与 `send_markdown_template()` 仅在调用方显式传 `True` 时写入该字段。
+
 返回：`{"id": "消息唯一ID", "timestamp": 发送时间}`。
 
 常见错误码：`22009` 消息发送超频、`304082`/`304083` 富媒体资源拉取失败。
@@ -67,6 +69,14 @@
 
 本地分片上传预留为后续能力，当前不可调用；需先确认适配器分片索引实现与最新官方
 0-based `parts[].index` 协议一致。
+
+## 群管理（2026-08-10）
+
+机器人必须是群管理员才可使用入群审批、成员禁言和接收 `GROUP_JOIN_REQUEST`。自动审批策略最多 20 个，每个策略最多关联 100 个群；策略、审批和禁言接口通常限 60 QPM，入群申请列表限 30 QPM。
+
+`GROUP_JOIN_REQUEST` 使用已有 `GROUP_AND_C2C_EVENT (1<<25)`，不新增 intent。Expand 当前只提供 Service/API 封装，不消费事件或自动审批；Adapter 应发布 `qqbot_adapter.group_join_request` 后，再由后续受信工作流接入。
+
+官方已统一 API 与 Gateway 域名为 `api.bot.qq.com`；AccessToken 仍走 `bots.qq.com`。Expand 非 POST 调用使用新域名，Adapter 的 POST、Gateway discovery 和 fallback WSS 必须由 Adapter 维护者同步迁移。
 
 ## 频控规则
 
@@ -167,7 +177,8 @@
 
 ## 互动回调（INTERACTION_CREATE）
 
-- intents：`1<<26`
+- intents：`1<<26`；与群聊/C2C 的 `1<<25` 组合为 `100663296`，必须在 Adapter 配置中手工设置
+- Adapter 收到事件后发布 `qqbot_adapter.interaction_create`，不生成普通消息，也不 ACK
 - 事件字段：`id`、`type`、`scene`（c2c/group/guild）、`chat_type`（0 频道/1 群聊/2 单聊）、
   `user_openid`、`group_openid`、`group_member_openid`、`data.resolved.*`
 - `type` 取值：11 消息按钮、12 单聊快捷菜单、13 消息反馈、14 清空会话、
@@ -181,9 +192,12 @@
   4 没有权限 / 5 仅管理员操作
 - 成功返回空
 - **每个 interaction_id 只能应答一次**，超时后失效；不应答客户端会一直 loading
+- Expand 在请求前以 TTL/容量有界表去重；网络 timeout 也不自动重试
+- 业务消息回复使用 `event_id=interaction_id`，不得使用 `msg_id` 或同时传两者
+- 按钮 `action.type=1` 与事件顶层 `type=11/12` 是两套不同枚举
 - 该接口仅正式域名 `api.sgroup.qq.com` 可用
 
 错误码：630001 参数非法、630002~630006 appid / header 相关、630007 数据过大、
 630008 互动预处理失败。
 
-具体到本插件的可用性结论，见 [README](../README.md#互动回调按钮点击的已知限制)。
+具体使用、路由注册和 ACK 所有权见 [README](../README.md#互动-callback-链路) 与 [使用教程](usage-guide.md#6-按钮-callback)。

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 # ============ REST API 基础 URL ============
 
-API_BASE_SANDBOX = "https://sandbox.api.sgroup.qq.com"
-API_BASE_PRODUCTION = "https://api.sgroup.qq.com"
+API_BASE_SANDBOX = "https://api.bot.qq.com"
+API_BASE_PRODUCTION = "https://api.bot.qq.com"
 
 # ============ 消息类型（msg_type） ============
 
@@ -115,7 +115,9 @@ INTERACTION_CODE_DESCRIPTIONS: dict[int, str] = {
 
 # ============ raw 通道 ============
 
-RAW_SUPPORTED_METHODS: frozenset[str] = frozenset({"GET", "POST", "PUT", "DELETE"})
+RAW_SUPPORTED_METHODS: frozenset[str] = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE"}
+)
 
 # 指令按钮拉起的输入内容长度上限
 COMMAND_TEXT_MAX_LENGTH = 100

@@ -35,6 +35,33 @@
 
 成功时 `message_id` 为 QQ 返回的消息 ID，`error` 为 `None`；失败时 `message_id` 为 `""`。
 
+Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。只在传入 `True` 时下发该字段；此时 QQ 图片资源转存失败会让**整条消息发送失败**。默认关闭时保持 QQ 的旧行为：图片可能被静默丢弃而消息仍发送。
+
+---
+
+## Service: `qqbot_expand:service:qqbot_group_admin`
+
+供受信插件调用的群管理 API；机器人必须是目标群管理员。所有方法返回桥接统一结构：
+
+```python
+{"success": bool, "data": dict | None, "error": str | None}
+```
+
+| 方法 | HTTP | 说明 |
+|---|---|---|
+| `list_join_approval_strategies(cursor="", limit=20)` | GET | 分页查询当前生效策略列表，60 QPM，`limit` 为 1–100 |
+| `create_join_approval_strategy(...)` | POST | `group_openids` / `group_ids` 二选一，最多 100 个群 |
+| `update_join_approval_strategy(...)` | PATCH | 启停、失效时间、备注或关联群增删 |
+| `delete_join_approval_strategy(strategy_id)` | DELETE | 删除策略 |
+| `execute_join_approval_strategy(strategy_id)` | POST | 异步触发策略 |
+| `update_strategy_whitelist_users(...)` | POST | `add/del` 白名单号码，单次 1–10000 个 |
+| `list_join_requests(group_openid, cursor="", limit=20)` | GET | 查询待审批申请，30 QPM，`limit` 为 1–100 |
+| `approve_join_request(group_openid, member_openid, op, ...)` | POST | `op` 只能为 `approve` 或 `decline` |
+| `get_restrict_chat_setting(group_openid)` | GET | 查询群成员禁言状态 |
+| `set_member_mute_states(group_openid, members)` | POST | 批量设置成员禁言，单次 1–10 项，`op` 为 `add/update/del` |
+
+`qq_review_group_join_request` 和 `qq_set_group_member_mute` 是受控 LLM Tool：默认不注册，只能操作触发消息所在、且位于 `group_admin_allowed_group_openids` 白名单的 QQ 群。策略管理没有 LLM Tool。
+
 ---
 
 ### `send_keyboard`
@@ -319,8 +346,54 @@ async def get_status() -> dict[str, Any]
 
 ## Service: `qqbot_expand:service:qqbot_interaction`
 
-互动回调应答。**使用前务必阅读 [使用教程第 6 节](usage-guide.md#6-按钮回调读之前先看这里)** ——
-当前版本存在链路限制。
+互动 callback 路由与唯一 ACK 出口。Adapter 只发布
+`qqbot_adapter.interaction_create`，本插件的 EventHandler 负责消费；部署时必须在 Adapter
+手工设置 `connection.intents = 100663296`。
+
+### `register_callback`
+
+```python
+def register_callback(
+    namespace: str,
+    action: str,
+    callback: Callable,
+    permission: Callable | None = None,
+    *,
+    replace: bool = False,
+) -> dict[str, Any]
+```
+
+注册 `namespace:action:payload` 精确路由。namespace/action 只允许 1～64 位字母、数字、
+下划线和连字符；payload 可以为空。callback 与 permission 均可同步或异步，不会通过字符串
+动态 import，也不会执行 eval/exec。
+
+callback 接收 `(InteractionContext, payload)`，返回：
+
+```python
+CallbackResult(
+    handled: bool,
+    ack_code: int,          # 0～5
+    message: str | None,    # 可选 event_id 文本回复
+)
+```
+
+也可简写返回 0～5 整数，此时视为 `handled=True`。未知/非法路由、callback 异常或超时归一为
+`handled=False, ack_code=1`；权限拒绝为 code 4。返回结构：
+`{"success": bool, "registered": bool, "error": str | None}`。重复路由默认拒绝，只有
+`replace=True` 才覆盖。
+
+### `unregister_callback`
+
+```python
+def unregister_callback(
+    namespace: str,
+    action: str,
+    callback: Callable | None = None,
+) -> dict[str, Any]
+```
+
+注销精确路由。提供 callback 时必须与当前注册对象身份相同，防止误删。返回
+`{"success": bool, "removed": bool, "error": str | None}`。
 
 ### `ack`
 
@@ -339,10 +412,23 @@ async def ack(interaction_id: str, code: int = 0) -> dict[str, Any]
 | 4 | 没有权限 |
 | 5 | 仅管理员操作 |
 
-返回 `{"success": bool, "code": int, "description": str, "error": str | None}`。
+返回：
 
-> 同一 `interaction_id` **只能应答一次**且超时后失效。适配器会自动应答 `code=0`，
-> 你的自定义 code 会与之竞争。
+```python
+{
+    "success": bool,
+    "code": int,
+    "description": str,
+    "error": str | None,
+    "duplicate": bool,
+}
+```
+
+同一 interaction ID 在插件级共享 ACK 表中只允许一次网络请求。记录带 TTL 和容量上限，并在
+请求前写入；网络失败或 timeout 也不释放、不自动重试，因为 QQ 可能已收到请求。达到容量上限
+时拒绝新的 ACK，直到旧记录过期，不会淘汰仍处于 TTL 内的 ID。`duplicate=True` 表示本次被
+本地重复记录抑制；容量拒绝返回 `success=False, duplicate=False`。EventHandler 已接管的 ID
+不应由外部调用方再次 ACK。
 
 ### `needs_ack`
 
@@ -351,8 +437,9 @@ async def ack(interaction_id: str, code: int = 0) -> dict[str, Any]
 def needs_ack(interaction_type: int) -> bool
 ```
 
-判断某互动类型是否需要应答。官方只要求 `type=11`（消息按钮）与 `type=12`
-（单聊快捷菜单）应答，其余类型（消息反馈、清空会话、授权变更等）无需应答。
+只对事件顶层 `type=11`（消息按钮）与 `type=12`（单聊快捷菜单）返回真；其他 Interaction
+仍可被 callback 观察，但不请求 ACK API。注意按钮结构的 `action.type=1` 是 callback 动作类型，
+与此处 Interaction type 不是同一枚举。
 
 ### `describe_code`
 
@@ -362,6 +449,13 @@ def describe_code(code: int) -> str
 ```
 
 查询应答码对应的客户端提示文案，未知 code 返回空串。
+
+### EventHandler 行为
+
+`QQBotInteractionEventHandler` 订阅 `qqbot_adapter.interaction_create`，保持输入 params 的固定
+key 集合不变，在调度前认领 interaction ID，再通过框架 `task_manager` 启动 worker。callback、
+权限、ACK 和消息发送异常都不会抛回 EventBus。可选 `message` 只对 user/group 目标发送，并且
+只传 `event_id`；目标无法确认或为 guild 时只 ACK 并记录日志。
 
 ---
 

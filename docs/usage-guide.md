@@ -46,6 +46,28 @@ print(status)
 
 ---
 
+## 0.1 群管理与 Adapter 交接
+
+`qqbot_group_admin` 提供入群自动审批策略、申请审批和成员禁言。机器人必须是群管理员；策略及审批接口由 QQ 平台执行最终权限校验。
+
+LLM Tool 默认关闭。只有配置同时满足：
+
+```toml
+[features]
+enable_group_admin_service = true # 允许受信插件调用高权限 Service
+enable_tools = true
+enable_group_admin_tools = true
+group_admin_allowed_group_openids = ["目标群 OpenID"]
+```
+
+才会注册当前群审批/禁言 Tool；目标群始终从触发会话推导，LLM 不能指定其他群。策略创建、执行和白名单管理不暴露给 LLM，只能通过 `qqbot_group_admin` Service 由受信插件调用。
+
+本轮 Expand 不消费 `GROUP_JOIN_REQUEST`。Adapter 请自行完成以下交接：识别该 Dispatch，不生成 `MessageEnvelope`、不自动审批，以深拷贝 `raw_event` 发布 `qqbot_adapter.group_join_request`，并标准化 `group_openid`、`join_request_id`、`member_openid`、申请来源、验证信息和自动审批信息。该事件仍使用 `GROUP_AND_C2C_EVENT (1<<25)`，只有机器人为群管理员时可收到。
+
+官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 端点统一为 `api.bot.qq.com`；请同步迁移 Adapter。Expand 的非 POST 请求已使用新域名。
+
+---
+
 ## 1. 发一排按钮
 
 最常见的需求：回复末尾挂几个按钮，让用户点一下就能继续。
@@ -88,8 +110,7 @@ else:
 | 用户点了跳转网页 / 小程序 | `ACTION_TYPE_LINK`(0) | URL（**域名需先报备**） |
 | 用户点了回调你的后端 | `ACTION_TYPE_CALLBACK`(1) | 任意回调数据 |
 
-**指令按钮是首选。** 它点击后由用户端发出一条真实消息，走正常消息链路进你的
-EventHandler / Command，不依赖任何回调机制。回调按钮当前不可用，原因见第 6 节。
+**指令按钮适合让用户发送一条真实消息；callback 按钮适合不进入普通聊天链的结构化业务动作。** callback 按钮的完整配置和注册方式见第 6 节。
 
 ### 硬性约束
 
@@ -244,32 +265,76 @@ else:
 
 ---
 
-## 6. 按钮回调：读之前先看这里
+## 6. 按钮 callback
 
-**当前版本收不到按钮回调事件。** 这不是没实现，是链路上有三道卡口：
+### 启用 Interaction intent
 
-1. **`qqbot_adapter` 默认不订阅**。它的 `connection.intents` 默认 `33554432`（`1<<25`），
-   不含 `1<<26` 的 INTERACTION 位。要收回调得**你自己**把适配器配置改成 `100663296`。
-2. **改了也到不了本插件**。适配器收到 `INTERACTION_CREATE` 后自己处理完就 `return None`，
-   事件不进核心；而 `gateway.set_dispatch_callback` 是单槽的，已被适配器占用。
-3. **应答会打架**。适配器会自动应答 `{"code": 0}`，而同一个 `interaction_id`
-   **只能应答一次**，你的自定义 code 会输给它。
+`qqbot_adapter` 默认只订阅群聊/C2C 消息。callback 按钮还需要手工配置：
 
-所以：
+```toml
+[connection]
+intents = 100663296 # GROUP_AND_C2C_EVENT | INTERACTION
+```
 
-- ✅ **指令按钮**（`action.type=2`）—— 完全可用，点击后走正常消息链路
-- ✅ **链接按钮**（`action.type=0`）—— 完全可用
-- ❌ **回调按钮**（`action.type=1`）—— 后端回调不可用
+本插件只在加载日志中提示，不会读取或修改 Adapter 配置。Adapter 收到事件后只发布
+`qqbot_adapter.interaction_create`，不 ACK，也不创建普通消息；Expand 是唯一 ACK 所有者。
 
-**结论：优先用指令按钮。** 它能覆盖绝大多数交互需求，且不依赖任何回调机制。
-
-`qqbot_interaction` Service 仅供"你通过其他途径拿到了 `interaction_id`"的场景：
+### 注册路由并发送 callback 按钮
 
 ```python
-inter = service_api.get_service("qqbot_expand:service:qqbot_interaction")
+from src.app.plugin_system.api import service_api
+from plugins.qqbot_expand.src.builders import build_button
+from plugins.qqbot_expand.src.constants import ACTION_TYPE_CALLBACK
+from plugins.qqbot_expand.src.interaction import CallbackResult
 
-if inter.needs_ack(event_type):        # 只有 type 11 / 12 需要应答
-    await inter.ack(interaction_id, code=4)   # 4 = 没有权限
+interaction = service_api.get_service("qqbot_expand:service:qqbot_interaction")
+
+async def approve(context, payload):
+    # context.operator_openid 可用于业务权限校验；payload 是第三段原文
+    return CallbackResult(
+        handled=True,
+        ack_code=0,
+        message=f"已处理任务 {payload}",
+    )
+
+registration = interaction.register_callback("todo", "approve", approve)
+assert registration["success"]
+
+button = build_button(
+    "批准",
+    action_type=ACTION_TYPE_CALLBACK,
+    data="todo:approve:task-42",
+)
+await msg.send_keyboard(
+    "group",
+    group_openid,
+    [[button]],
+    content="是否批准？",
+    msg_id=trigger_msg_id,
+)
+```
+
+路由固定为 `namespace:action:payload`，只按 `(namespace, action)` 精确查找；payload 可以为空。
+namespace/action 只能包含字母、数字、下划线和连字符。禁止把 button_data 当 Python、模块路径或
+命令执行。
+
+可选 `permission(context, payload)` 可同步或异步；返回 false 时 ACK code 4，业务 callback
+不会执行。callback 可返回 `CallbackResult(handled, ack_code, message)` 或简写为 0～5 的整数。
+未知/非法路由与异常/超时使用 code 1；业务可用 code 3 表示重复操作。
+
+`message` 只在可确认的 user/group 目标上发送，并且只携带 `event_id=context.event_id`，绝不
+把 interaction ID 作为 `msg_id`。C2C 流式业务应自行通过
+`service_api.get_service("qqbot_adapter:service:qqbot")` 调用
+`start_streaming(..., event_id=context.event_id)`，不得同时传 msg_id。
+
+只有事件顶层 `type=11/12` 需要 ACK。按钮的 `action.type=1` 与 Interaction 顶层 type 是两套
+不同枚举。ACK 请求前会写入插件级 TTL/容量有界去重表；网络超时也不会自动重试。外部调用方
+不应再次 ACK 已由 EventHandler 接管的 ID。未安装或关闭 Expand 时 callback 不会 ACK。
+
+注销时可校验 callback 身份：
+
+```python
+interaction.unregister_callback("todo", "approve", approve)
 ```
 
 ---
@@ -401,8 +466,9 @@ if not result["success"]:
 
 ## 11. 常见问题
 
-**Q: 按钮发出去了但点击没反应**
-A: 大概率用了回调按钮（`action.type=1`）。换成指令按钮。
+**Q: callback 按钮发出去了但点击没反应**
+A: 检查 Adapter `intents=100663296`、Expand 是否启用、加载日志是否提示 Interaction，以及
+`button_data` 是否匹配已注册的 `namespace:action:payload` 路由。未启用 Expand 时不会 ACK。
 
 **Q: `无法从当前会话推导 QQ 发送目标`**
 A: Tool 在非 QQ 平台会话被调用了，或触发消息缺少 openid。Tool 已限定

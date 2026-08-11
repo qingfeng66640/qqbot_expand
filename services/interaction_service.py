@@ -1,23 +1,15 @@
-"""QQ 互动回调应答 Service。
+"""QQ 互动回调应答与 callback 注册 Service。
 
-按钮被点击后，QQ 会下发 ``INTERACTION_CREATE`` 事件（需 ``intents`` 含
-``1<<26``）并等待机器人应答 ``PUT /interactions/{interaction_id}``，客户端据此
-显示"操作成功 / 操作频繁 / 没有权限"等提示；不应答则按钮会一直转圈直到超时。
+``qqbot_adapter`` 收到 ``INTERACTION_CREATE`` 后只发布
+``qqbot_adapter.interaction_create``，不发送 ACK；本插件的 EventHandler 是 callback
+链路的 ACK 所有者。只有 ``type=11``（消息按钮）与 ``type=12``（单聊快捷菜单）
+需要调用 ``PUT /interactions/{interaction_id}``。
 
-按官方文档：只有 ``type=11``（消息按钮）与 ``type=12``（单聊快捷菜单）需要应答；
-同一个 ``interaction_id`` **只能应答一次**，且过期后不可再答；接口限频 50 QPS。
-
-**已知限制（务必阅读 README 的同名章节）**：
-
-1. ``qqbot_adapter`` 收到 ``INTERACTION_CREATE`` 后会自行应答 ``{"code": 0}``
-   并 ``return None``，事件不进核心，本插件收不到回调 payload；
-2. 因"只能应答一次"，本 Service 的自定义 code 会与适配器的自动应答**竞争**，
-   晚到的一方会失败；
-3. 该接口沙箱环境不可用，本 Service 强制走正式域名。
-
-综上，本 Service 适用于"调用方通过其他途径拿到 interaction_id"的场景，
-不能作为完整的互动回调链路使用。
+所有 Service 实例共享插件级 ``InteractionRuntime``。ACK 在网络请求前写入带 TTL 和容量
+上限的去重表；即使请求超时或失败也不会自动重试，因为 QQ 可能已经收到第一次请求。
+外部调用方不应再次应答已由 EventHandler 接管的 interaction_id。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,10 +31,22 @@ class QQBotInteractionService(BaseService):
     """QQ 互动回调应答服务。"""
 
     service_name = "qqbot_interaction"
-    service_description = "应答 QQ 按钮互动回调（PUT /interactions/{id}），可自定义提示码"
+    service_description = (
+        "应答 QQ 按钮互动回调（PUT /interactions/{id}），可自定义提示码"
+    )
     version = "0.2.0"
 
     async def ack(self, interaction_id: str, code: int = 0) -> dict[str, Any]:
+        """应答一次互动回调。"""
+        return await self._ack(interaction_id, code, owned_by_worker=False)
+
+    async def _ack(
+        self,
+        interaction_id: str,
+        code: int,
+        *,
+        owned_by_worker: bool,
+    ) -> dict[str, Any]:
         """应答一次互动回调。
 
         Args:
@@ -50,9 +54,11 @@ class QQBotInteractionService(BaseService):
             code: 应答码，决定客户端弹出的提示文案。
                 0 操作成功 / 1 操作失败 / 2 操作频繁 / 3 重复操作 /
                 4 没有权限 / 5 仅管理员操作。
+            owned_by_worker: 仅由内部 EventHandler worker 传入，用于确认当前业务所有权。
 
         Returns:
-            ``{"success": bool, "code": int, "description": str, "error": str | None}``。
+            包含 ``success``、``code``、``description``、``error`` 和
+            ``duplicate`` 的稳定结构。
         """
         if not isinstance(interaction_id, str) or not interaction_id.strip():
             return self._failure("interaction_id 不能为空", code)
@@ -63,10 +69,35 @@ class QQBotInteractionService(BaseService):
                 f"code 只能是 {sorted(INTERACTION_CODES)} 之一，收到 {code}", code
             )
 
-        path = PATH_INTERACTION_ACK.format(interaction_id=interaction_id.strip())
-        # 互动应答接口沙箱不支持，强制正式域名
+        normalized_id = interaction_id.strip()
+        runtime = getattr(self.plugin, "interaction_runtime", None)
+        ack_claim = (
+            await runtime.claim_ack(normalized_id, owned_by_worker=owned_by_worker)
+            if runtime is not None
+            else "claimed"
+        )
+        if ack_claim == "duplicate":
+            return {
+                "success": True,
+                "code": code,
+                "description": INTERACTION_CODE_DESCRIPTIONS[code],
+                "error": None,
+                "duplicate": True,
+            }
+        if ack_claim == "processing":
+            return self._failure("互动事件正在由 EventHandler 处理，不能抢先应答", code)
+        if ack_claim == "capacity":
+            return self._failure("ACK 去重容量已满，为避免重复应答已拒绝请求", code)
+
+        path = PATH_INTERACTION_ACK.format(interaction_id=normalized_id)
+        # 互动应答接口沙箱不支持，强制正式域名；ACK 网络失败也不得重试。
         result = await api_request(
-            self.plugin, "PUT", path, {"code": code}, force_production=True
+            self.plugin,
+            "PUT",
+            path,
+            {"code": code},
+            force_production=True,
+            retry_network_errors=False,
         )
         if not result["success"]:
             return self._failure(result["error"], code)
@@ -75,7 +106,54 @@ class QQBotInteractionService(BaseService):
             "code": code,
             "description": INTERACTION_CODE_DESCRIPTIONS[code],
             "error": None,
+            "duplicate": False,
         }
+
+    def register_callback(
+        self,
+        namespace: str,
+        action: str,
+        callback: Any,
+        permission: Any = None,
+        *,
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        """向插件共享运行时注册精确互动路由。"""
+        try:
+            registered = self.plugin.interaction_runtime.register(
+                namespace,
+                action,
+                callback,
+                permission,
+                replace=replace,
+            )
+        except (TypeError, ValueError, RuntimeError) as exc:
+            return {"success": False, "registered": False, "error": str(exc)}
+        if not registered:
+            return {
+                "success": False,
+                "registered": False,
+                "error": "互动回调路由已注册；如需替换请设置 replace=True",
+            }
+        return {"success": True, "registered": True, "error": None}
+
+    def unregister_callback(
+        self,
+        namespace: str,
+        action: str,
+        callback: Any = None,
+    ) -> dict[str, Any]:
+        """从插件共享运行时注销精确互动路由。"""
+        removed = self.plugin.interaction_runtime.unregister(
+            namespace, action, callback
+        )
+        if not removed:
+            return {
+                "success": False,
+                "removed": False,
+                "error": "互动回调路由不存在或 callback 身份不匹配",
+            }
+        return {"success": True, "removed": True, "error": None}
 
     @staticmethod
     def describe_code(code: int) -> str:
@@ -120,4 +198,5 @@ class QQBotInteractionService(BaseService):
             "code": code,
             "description": INTERACTION_CODE_DESCRIPTIONS.get(code, ""),
             "error": error,
+            "duplicate": False,
         }

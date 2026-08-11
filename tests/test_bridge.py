@@ -233,6 +233,20 @@ class TestApiRequestGuards:
         assert len(client.calls) == 2
         assert result["error"] == ERROR_NETWORK
 
+    async def test_network_error_can_disable_retry(self, patch_send_handler) -> None:
+        """一次性操作关闭网络重试后只发送一次。"""
+        client = FakeHttpClient(
+            [httpx.ConnectError("connection refused"), FakeResponse(200, {"ok": 1})]
+        )
+        plugin = make_plugin(http_client=client)
+
+        result = await api_request(
+            plugin, "PUT", "/interactions/i1", {"code": 0}, retry_network_errors=False
+        )
+
+        assert len(client.calls) == 1
+        assert result["error"] == ERROR_NETWORK
+
     async def test_network_error_recovers_on_retry(self, patch_send_handler) -> None:
         """首次失败、重试成功时应返回成功。"""
         client = FakeHttpClient(

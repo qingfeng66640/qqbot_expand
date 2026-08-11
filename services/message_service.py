@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 
 from src.app.plugin_system.base import BaseService
 
-from ..src.bridge import api_request
+from ..src.bridge import api_request, encode_path_segment
 from ..src.builders import (
     build_ark,
     build_embed,
@@ -177,6 +177,13 @@ def _validate_passive_source(msg_id: str, event_id: str) -> str | None:
     return None
 
 
+def _validate_force_verify_image_resource(value: bool) -> str | None:
+    """校验图片资源强校验开关。"""
+    if not isinstance(value, bool):
+        return "force_verify_image_resource 必须是布尔值"
+    return None
+
+
 async def _validate_public_media_url(url: str) -> tuple[str | None, str]:
     """校验媒体 URL 只指向公网 HTTP(S) 地址。
 
@@ -252,7 +259,8 @@ class QQBotMessageService(BaseService):
             if target_type == TARGET_TYPE_USER
             else PATH_GROUP_MESSAGES
         )
-        return template.format(openid=target_id.strip())
+        _error, openid = encode_path_segment(target_id, "target_id")
+        return template.format(openid=openid)
 
     @staticmethod
     def _resolve_upload_path(target_type: str, target_id: str) -> str:
@@ -266,7 +274,8 @@ class QQBotMessageService(BaseService):
             以 ``/`` 开头的相对路径。
         """
         template = PATH_USER_FILES if target_type == TARGET_TYPE_USER else PATH_GROUP_FILES
-        return template.format(openid=target_id.strip())
+        _error, openid = encode_path_segment(target_id, "target_id")
+        return template.format(openid=openid)
 
     @staticmethod
     def _apply_passive_fields(
@@ -351,6 +360,33 @@ class QQBotMessageService(BaseService):
 
     # ============ 对外方法 ============
 
+    async def send_text(
+        self,
+        target_type: str,
+        target_id: str,
+        content: str,
+        *,
+        msg_id: str = "",
+        event_id: str = "",
+        msg_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """发送普通文本，支持以 event_id 关联互动事件。"""
+
+        def builder() -> dict[str, Any]:
+            """构造文本消息体。"""
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("content 不能为空")
+            if msg_id and event_id:
+                raise ValueError("msg_id 与 event_id 互斥，只能提供其中一个")
+            payload: dict[str, Any] = {
+                "msg_type": MSG_TYPE_TEXT,
+                "content": content,
+            }
+            self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
+            return payload
+
+        return await self._guard_and_send(target_type, target_id, msg_seq, builder)
+
     async def send_keyboard(
         self,
         target_type: str,
@@ -363,6 +399,7 @@ class QQBotMessageService(BaseService):
         msg_id: str = "",
         event_id: str = "",
         msg_seq: int | None = None,
+        force_verify_image_resource: bool = False,
     ) -> dict[str, Any]:
         """发送带按钮菜单的消息。
 
@@ -393,8 +430,11 @@ class QQBotMessageService(BaseService):
                 完整消息体。
 
             Raises:
-                ValueError: Markdown 载体缺失或按钮结构非法。
+                ValueError: Markdown 载体、图片资源校验参数或按钮结构非法。
             """
+            error = _validate_force_verify_image_resource(force_verify_image_resource)
+            if error:
+                raise ValueError(error)
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
@@ -404,6 +444,8 @@ class QQBotMessageService(BaseService):
                 ),
                 "keyboard": build_keyboard(rows),
             }
+            if force_verify_image_resource:
+                payload["force_verify_image_resource"] = True
             self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
             return payload
 
@@ -528,6 +570,7 @@ class QQBotMessageService(BaseService):
         msg_id: str = "",
         event_id: str = "",
         msg_seq: int | None = None,
+        force_verify_image_resource: bool = False,
     ) -> dict[str, Any]:
         """发送模板 Markdown 消息（``msg_type=2``）。
 
@@ -555,14 +598,19 @@ class QQBotMessageService(BaseService):
                 完整消息体。
 
             Raises:
-                ValueError: 模板参数或按钮结构非法。
+                ValueError: 模板参数、图片资源校验参数或按钮结构非法。
             """
+            error = _validate_force_verify_image_resource(force_verify_image_resource)
+            if error:
+                raise ValueError(error)
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
                     custom_template_id=custom_template_id, params=params
                 ),
             }
+            if force_verify_image_resource:
+                payload["force_verify_image_resource"] = True
             if rows:
                 payload["keyboard"] = build_keyboard(rows)
             self._apply_passive_fields(payload, msg_id, event_id, msg_seq)

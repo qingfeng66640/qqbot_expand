@@ -20,11 +20,15 @@ from src.app.plugin_system.api.log_api import get_logger
 from src.app.plugin_system.base import BaseConfig, BasePlugin, register_plugin
 
 from .config import QQBotExpandConfig
+from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
+from .src.interaction import InteractionRuntime
+from .services.group_admin_service import QQBotGroupAdminService
 from .services.interaction_service import QQBotInteractionService
 from .services.message_service import QQBotMessageService
 from .services.raw_service import QQBotRawService
 from .tools import ALL_TOOLS
+from .tools.group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
 from .tools.send_ark import QQSendArkTool
 from .tools.send_keyboard import QQSendKeyboardTool
 from .tools.send_reply import QQSendReplyTool
@@ -56,6 +60,7 @@ class QQBotExpandPlugin(BasePlugin):
         """
         super().__init__(config)
         self.http_client: httpx.AsyncClient | None = None
+        self.interaction_runtime = InteractionRuntime(self)
 
     def get_components(self) -> list[type]:
         """返回插件注册的全部组件。
@@ -70,17 +75,23 @@ class QQBotExpandPlugin(BasePlugin):
         # 以便 mpdt 的 ComponentValidator 能静态解析出组件清单。
         components = [
             QQBotMessageService,
+            QQBotGroupAdminService,
             QQBotInteractionService,
             QQBotRawService,
+            QQBotInteractionEventHandler,
         ]
         if self._tools_enabled():
             components.append(QQSendKeyboardTool)
             components.append(QQSendArkTool)
             components.append(QQSendReplyTool)
+        if self._group_admin_tools_enabled():
+            components.append(QQReviewGroupJoinRequestTool)
+            components.append(QQSetGroupMemberMuteTool)
         return components
 
     async def on_plugin_loaded(self) -> None:
-        """插件加载时创建共享 httpx 客户端。"""
+        """插件加载时重置互动运行时并创建共享 httpx 客户端。"""
+        await self.interaction_runtime.reset()
         http_cfg = getattr(self.config, "http", None)
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -97,6 +108,10 @@ class QQBotExpandPlugin(BasePlugin):
             http2=self._http2_enabled(http_cfg),
             trust_env=False,
         )
+        if self._interaction_enabled():
+            logger.info(
+                "qqbot_expand 互动回调已启用；请确保 qqbot_adapter 使用 intents=100663296"
+            )
         tool_count = len(ALL_TOOLS) if self._tools_enabled() else 0
         logger.info(
             f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
@@ -126,7 +141,11 @@ class QQBotExpandPlugin(BasePlugin):
         return True
 
     async def on_plugin_unloaded(self) -> None:
-        """插件卸载时关闭共享 httpx 客户端。"""
+        """插件卸载时先清理互动任务，再关闭共享 httpx 客户端。"""
+        try:
+            await self.interaction_runtime.close()
+        except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出
+            logger.warning(f"关闭互动运行时失败: {exc}")
         if self.http_client is not None:
             try:
                 await self.http_client.aclose()
@@ -136,6 +155,11 @@ class QQBotExpandPlugin(BasePlugin):
                 self.http_client = None
         logger.info("qqbot_expand 插件已卸载")
 
+    def _interaction_enabled(self) -> bool:
+        """读取互动回调开关，配置缺失时默认启用。"""
+        interaction = getattr(self.config, "interaction", None)
+        return bool(getattr(interaction, "enabled", True))
+
     def _tools_enabled(self) -> bool:
         """读取 ``features.enable_tools`` 开关。
 
@@ -144,3 +168,13 @@ class QQBotExpandPlugin(BasePlugin):
         """
         features = getattr(self.config, "features", None)
         return bool(getattr(features, "enable_tools", True))
+
+    def _group_admin_tools_enabled(self) -> bool:
+        """仅在显式启用且配置目标群白名单时注册群管理 Tool。"""
+        features = getattr(self.config, "features", None)
+        allowed_groups = getattr(features, "group_admin_allowed_group_openids", []) or []
+        return (
+            self._tools_enabled()
+            and bool(getattr(features, "enable_group_admin_tools", False))
+            and any(isinstance(group, str) and group.strip() for group in allowed_groups)
+        )

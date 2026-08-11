@@ -8,6 +8,7 @@
 **只支持 POST**。本插件在不修改适配器的前提下补上剩余部分：
 
 | 能力 | qqbot_adapter | qqbot_expand |
+
 | --- | --- | --- |
 | 按钮菜单（keyboard） | 无 | `qqbot_message.send_keyboard()` |
 | ark 卡片（`msg_type=3`） | 无 | `qqbot_message.send_ark()` |
@@ -16,8 +17,9 @@
 | 文本内嵌交互标签 | 无 | `src/builders.py` 的 `at_user` / `cmd_enter` / `cmd_input` 等 |
 | embed（`msg_type=4`） | 无 | `qqbot_message.send_embed()`（QQ 侧当前不支持单聊/群聊，见下） |
 | 富媒体 URL 上传与发送（`msg_type=7`） | 底层出站/分片能力 | `upload_media_from_url()` / `send_media()` / `send_media_from_url()` |
-| GET / PUT / DELETE 接口 | 无 | `qqbot_raw.request()` |
-| 互动回调应答 | 自动 `code=0` | `qqbot_interaction.ack()`（见下方限制） |
+| GET / PUT / PATCH / DELETE 接口 | 无 | `qqbot_raw.request()` |
+| 群入群审批策略、申请审批、成员禁言 | 无 | `qqbot_group_admin` Service；受控审批/禁言 Tool |
+| 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
 ## 依赖
 
@@ -51,7 +53,7 @@ qqbot_expand
 ```
 
 **POST 走适配器，其余自持客户端**：`SendHandler.post_api()` 内置了 401 重试与错误处理，
-POST 一律复用它；GET / PUT / DELETE 由本插件自己的 `httpx.AsyncClient` 发出，
+POST 一律复用它；GET / PUT / PATCH / DELETE 由本插件自己的 `httpx.AsyncClient` 发出，
 token 仍向适配器索取。该客户端挂在插件实例上（`BaseService` 每次 `get_service()`
 都是新实例，不能缓存长生命周期资源），由 `on_plugin_loaded` / `on_plugin_unloaded` 管理。
 
@@ -70,6 +72,16 @@ token 仍向适配器索取。该客户端挂在插件实例上（`BaseService` 
   带 `msg_id` 时缺省填 1
 
 富媒体方法在上述字段外增加 `media` 上传元数据；详见 [API 参考](docs/api-reference.md)。
+
+### `qqbot_expand:service:qqbot_group_admin`
+
+供受信插件或管理员工作流调用，覆盖入群自动审批策略、待审批申请和成员禁言。机器人必须是目标群管理员；策略相关接口通常为 **60 QPM**，申请列表为 **30 QPM**。该 Service 不会被直接注册成 LLM Tool。
+
+LLM 仅可在显式启用 `features.enable_group_admin_tools=true` 后使用当前群的审批与禁言 Tool，并且当前群必须在 `features.group_admin_allowed_group_openids` 白名单内；空白名单会拒绝全部操作。跨群策略创建、执行和白名单管理始终只由 Service 提供。
+
+### 平台域名迁移
+
+Expand 的非 POST API 基址已使用 `https://api.bot.qq.com`。请同时按本仓库 [使用教程](docs/usage-guide.md) 的交接清单迁移 Adapter 的 REST/Gateway/WSS 基址；在 Adapter 尚未迁移前，POST 和 Gateway 仍可能继续使用旧域名。AccessToken 地址仍为 `https://bots.qq.com/app/getAppAccessToken`。
 
 | 方法 | 说明 |
 | --- | --- |
@@ -118,10 +130,12 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
 
 ### `qqbot_expand:service:qqbot_interaction`
 
-- `ack(interaction_id, code=0)` → `PUT /interactions/{id}`（限频 50 QPS）
-- `code` 取值：0 操作成功 / 1 操作失败 / 2 操作频繁 / 3 重复操作 / 4 没有权限 / 5 仅管理员操作
-- `needs_ack(interaction_type)` 判断某个互动类型是否需要应答（仅 `type=11` 消息按钮、
-  `type=12` 单聊快捷菜单需要）
+- `register_callback(namespace, action, callback, permission=None, *, replace=False)` 注册
+  `namespace:action:payload` 精确路由；可选权限函数和业务 callback 均支持同步/异步。
+- `unregister_callback(namespace, action, callback=None)` 注销路由；传 callback 时会校验身份。
+- `ack(interaction_id, code=0)` 是唯一 ACK 出口，带 TTL 和容量上限的插件级去重，网络超时不重试。
+- `needs_ack(interaction_type)` 只对 `type=11` 消息按钮和 `type=12` 单聊快捷菜单返回真。
+- callback 返回 `CallbackResult(handled, ack_code, message)`；`message` 使用 `event_id` 回复，绝不将 interaction ID 当 `msg_id`。
 
 ## Tool
 
@@ -158,31 +172,40 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
 - 群聊：主动消息每月 4 条；被动回复有效期 5 分钟，每条消息最多回复 5 次
 - 消息内含 URL 需先在 `q.qq.com` 后台「开发设置 - 消息 URL 配置」报备，否则发送失败
 
-## 互动回调（按钮点击）的已知限制
+## 互动 callback 链路
 
-**首版只做"发出去"和"主动应答"，收不到回调事件。** 原因如下，务必先读完再决定是否依赖按钮交互：
+启用 callback 按钮前，必须手工配置 `qqbot_adapter`：
 
-1. **默认不订阅互动事件**。`qqbot_adapter` 的 `connection.intents` 默认为 `33554432`
-   （`1<<25`，群聊@ + 单聊），**不含** `1<<26` 的 INTERACTION 位。想收到按钮回调需要
-   **你自己**把适配器配置里的 `intents` 改成 `100663296`（`1<<25 | 1<<26`）——
-   本插件不会、也不应该代改 `qqbot_adapter` 的配置。
+```toml
+[connection]
+intents = 100663296 # (1 << 25) | (1 << 26)
+```
 
-2. **即便开启，回调 payload 也到不了本插件**。适配器的 `MessageHandler` 收到
-   `INTERACTION_CREATE` 后走 `_handle_interaction_create()` 然后 `return None`，
-   事件不会转成 `MessageEnvelope` 进入核心。而 `gateway.set_dispatch_callback`
-   是单槽回调，已被适配器占用，本插件无法旁挂监听。
+Expand 不会跨插件读取或修改该配置。完整链路为：
 
-3. **自定义 ACK 会与适配器竞争**。适配器在收到互动事件时会自动应答 `{"code": 0}`，
-   而按官方文档同一个 `interaction_id` **只能应答一次**且过期后不可再答。因此
-   `qqbot_interaction.ack()` 传自定义 code 时很可能失败（晚到的一方被拒）。该 Service
-   适用于"通过其他途径拿到 interaction_id"的场景，不能当作完整的互动链路使用。
+```text
+QQ Gateway INTERACTION_CREATE
+  → qqbot_adapter 标准化并发布 qqbot_adapter.interaction_create
+  → QQBotInteractionEventHandler 快速认领并通过 task_manager 调度
+  → namespace:action:payload 精确路由、权限与业务 callback
+  → QQBotInteractionService.ack() 唯一一次 ACK
+  → 可选使用 event_id 回复 user/group
+```
 
-4. **沙箱不支持**。互动应答接口只在正式域名 `api.sgroup.qq.com` 上可用，
-   本插件对该接口强制走正式域名。
+Adapter 不 ACK，Expand 是唯一 ACK 所有者。只有事件顶层 `type=11/12` ACK；按钮结构中的
+`action.type=1` 只是“callback 按钮”枚举，两者不是同一个概念。同一 interaction ID 在
+Gateway 重复投递、外部 Service 调用和网络超时场景下都不会重复 PUT；超时不代表 QQ 未收到，
+因此不会自动重试。活跃记录达到容量上限时，新 Interaction 会被拒绝处理/ACK，直到旧记录过期，
+以保证“最多一次”优先于可用性。
 
-结论：按钮可以正常发出、正常显示。**指令按钮**（`action.type=2`）与**链接按钮**
-（`action.type=0`）均可正常工作 —— 指令按钮点击后由用户端发出一条消息，走正常消息链路，
-不依赖回调。但**回调按钮**（`action.type=1`）的后端回调目前不可用。
+`button_data` 必须使用 `namespace:action:payload`。非法或未知路由 ACK code 1，权限不足 code 4，
+业务可返回 code 3 表示重复操作。耗时 callback 在 TaskManager worker 中执行；Handler 不阻塞
+Gateway 的事件发布。目标 openid 无法确认或为当前不支持回复的 guild 时，只 ACK 并记录日志。
+
+外部调用方不应对已由 EventHandler 接管的 interaction ID 再调用 `ack()`。未安装或未启用
+Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互动应答接口仍只在正式域名
+`api.sgroup.qq.com` 可用。
+
 
 ## 安全说明
 
@@ -203,6 +226,11 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
 | `features.allow_raw_request` | `true` | raw 通道总开关 |
 | `features.raw_allowed_methods` | `["GET","POST","PUT","DELETE"]` | raw 通道允许的方法白名单 |
 | `features.debug_log_payload` | `false` | 打印完整请求体（含敏感内容，仅调试用） |
+| `interaction.enabled` | `true` | 是否消费 Adapter 发布的 Interaction 事件 |
+| `interaction.callback_timeout` | `5.0` | 权限与业务 callback 的单次超时（秒） |
+| `interaction.button_data_max_length` | `1024` | 可处理的 button_data 最大字符数 |
+| `interaction.dedup_ttl` | `300.0` | ACK 去重记录 TTL（秒） |
+| `interaction.dedup_capacity` | `4096` | ACK 去重记录容量上限 |
 | `http.*` | 与 `qqbot_adapter` 一致 | 连接池、超时、重试退避参数 |
 
 ## 测试

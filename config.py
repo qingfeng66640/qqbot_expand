@@ -52,7 +52,7 @@ class QQBotExpandConfig(BaseConfig):
             hint="关闭后 qqbot_raw.request() 一律拒绝，仅保留 get_status()",
         )
         raw_allowed_methods: list[str | int] = Field(
-            default_factory=lambda: ["GET", "POST", "PUT", "DELETE"],
+            default_factory=lambda: ["GET", "POST", "PUT", "PATCH", "DELETE"],
             description="raw 通道允许使用的 HTTP 方法",
             label="raw 允许方法",
             input_type="list",
@@ -61,11 +61,80 @@ class QQBotExpandConfig(BaseConfig):
             depends_on="allow_raw_request",
             depends_value=True,
         )
+        enable_group_admin_service: bool = Field(
+            default=False,
+            description="是否允许受信插件调用高权限群管理 Service",
+            label="启用群管理 Service",
+            tag="security",
+        )
+        enable_group_admin_tools: bool = Field(
+            default=False,
+            description="是否向 LLM 注册群入群审批与成员禁言工具",
+            label="启用群管理 LLM 工具",
+            tag="security",
+            depends_on="enable_tools",
+            depends_value=True,
+        )
+        group_admin_allowed_group_openids: list[str] = Field(
+            default_factory=list,
+            description="允许 LLM 群管理工具操作的群 OpenID 白名单；留空时拒绝所有群",
+            label="群管理允许群 OpenID",
+            input_type="list",
+            item_type="str",
+            tag="security",
+            depends_on="enable_group_admin_tools",
+            depends_value=True,
+        )
         debug_log_payload: bool = Field(
             default=False,
             description="开启后将发往 QQ API 的完整请求体打印到日志（可能包含完整回复内容）",
             label="调试：打印请求体",
             tag="debug",
+        )
+
+    @config_section("interaction", title="互动回调", tag="interaction")
+    class InteractionSection(SectionBase):
+        """按钮互动路由、回调超时与去重配置。"""
+
+        enabled: bool = Field(
+            default=True,
+            description="是否消费 qqbot_adapter 发布的互动事件",
+            label="启用互动回调",
+            tag="interaction",
+        )
+        callback_timeout: float = Field(
+            default=5.0,
+            description="权限与业务回调的单次超时时间（秒）",
+            label="回调超时",
+            ge=0.1,
+            le=30.0,
+            step=0.1,
+            tag="interaction",
+        )
+        button_data_max_length: int = Field(
+            default=1024,
+            description="允许处理的 button_data 最大字符数",
+            label="按钮数据长度",
+            ge=3,
+            le=4096,
+            tag="interaction",
+        )
+        dedup_ttl: float = Field(
+            default=300.0,
+            description="ACK 消费记录保留时间（秒）",
+            label="去重有效期",
+            ge=1.0,
+            le=3600.0,
+            step=1.0,
+            tag="interaction",
+        )
+        dedup_capacity: int = Field(
+            default=4096,
+            description="ACK 消费记录的最大容量",
+            label="去重容量",
+            ge=1,
+            le=100000,
+            tag="interaction",
         )
 
     @config_section("http", title="HTTP 客户端", tag="network")
@@ -164,4 +233,5 @@ class QQBotExpandConfig(BaseConfig):
 
     plugin: PluginSection = Field(default_factory=PluginSection)
     features: FeaturesSection = Field(default_factory=FeaturesSection)
+    interaction: InteractionSection = Field(default_factory=InteractionSection)
     http: HttpSection = Field(default_factory=HttpSection)

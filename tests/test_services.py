@@ -3,6 +3,7 @@
 重点验证：消息体拼装是否符合 QQ 官方字段定义、被动回复字段的填充规则、
 raw 通道的双重开关，以及所有失败路径都返回结构化错误而非抛异常。
 """
+
 from __future__ import annotations
 
 import pytest
@@ -137,7 +138,11 @@ class TestPassiveFields:
     async def test_rejects_bad_msg_seq(self, message_service, msg_seq: object) -> None:
         """msg_seq 越界或类型错误时拒绝。"""
         result = await message_service.send_reply(
-            "user", "u1", "hi", "m0", msg_seq=msg_seq  # type: ignore[arg-type]
+            "user",
+            "u1",
+            "hi",
+            "m0",
+            msg_seq=msg_seq,  # type: ignore[arg-type]
         )
         assert result["success"] is False
 
@@ -175,7 +180,9 @@ class TestSendKeyboard:
 
     async def test_requires_markdown_carrier(self, message_service) -> None:
         """content 与 custom_template_id 都不给时拒绝。"""
-        result = await message_service.send_keyboard("user", "u1", [[build_button("A")]])
+        result = await message_service.send_keyboard(
+            "user", "u1", [[build_button("A")]]
+        )
         assert result["success"] is False
 
     async def test_propagates_builder_error(self, message_service) -> None:
@@ -199,7 +206,9 @@ class TestSendArk:
 
     async def test_rejects_empty_kv(self, message_service) -> None:
         """kv 为空时拒绝。"""
-        assert (await message_service.send_ark("user", "u1", 23, []))["success"] is False
+        assert (await message_service.send_ark("user", "u1", 23, []))[
+            "success"
+        ] is False
 
 
 class TestSendEmbedAndMarkdown:
@@ -244,6 +253,28 @@ class TestSendEmbedAndMarkdown:
 class TestSendReply:
     """引用回复。"""
 
+    async def test_event_id_only_text_reply(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """普通文本回复互动事件时只携带 event_id。"""
+        result = await message_service.send_text("user", "u1", "完成", event_id="e1")
+        body = sent_body(patch_send_handler)
+        assert result["success"] is True
+        assert body == {"msg_type": MSG_TYPE_TEXT, "content": "完成", "event_id": "e1"}
+        assert "msg_id" not in body
+
+    async def test_text_rejects_empty_and_conflicting_sources(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """文本为空或同时传 msg_id/event_id 时不发请求。"""
+        assert (await message_service.send_text("user", "u1", ""))["success"] is False
+        assert (
+            await message_service.send_text(
+                "user", "u1", "x", msg_id="m1", event_id="e1"
+            )
+        )["success"] is False
+        assert patch_send_handler.posts == []
+
     async def test_payload(self, message_service, patch_send_handler) -> None:
         """msg_type=0 + message_reference。"""
         await message_service.send_reply("user", "u1", "回复内容", "m0")
@@ -287,9 +318,7 @@ class TestSendMedia:
             message_service_module, "_validate_public_media_url", validate
         )
 
-    async def test_upload_user_media(
-        self, message_service, patch_send_handler
-    ) -> None:
+    async def test_upload_user_media(self, message_service, patch_send_handler) -> None:
         """单聊上传使用 /files 且不直接发送。"""
         patch_send_handler.post_result = {
             "file_uuid": "f1",
@@ -343,7 +372,10 @@ class TestSendMedia:
     ) -> None:
         """未知或类型错误的 file_type 在请求前拒绝。"""
         result = await message_service.upload_media_from_url(
-            "user", "u1", file_type, "https://cdn.example/a"  # type: ignore[arg-type]
+            "user",
+            "u1",
+            file_type,
+            "https://cdn.example/a",  # type: ignore[arg-type]
         )
         assert result["success"] is False
         assert patch_send_handler.posts == []
@@ -363,9 +395,7 @@ class TestSendMedia:
         self, message_service, patch_send_handler
     ) -> None:
         """已有 file_info 可跳过上传直接发送。"""
-        result = await message_service.send_media(
-            "group", "g1", "opaque", msg_id="m1"
-        )
+        result = await message_service.send_media("group", "g1", "opaque", msg_id="m1")
         body = sent_body(patch_send_handler)
         assert body["msg_type"] == MSG_TYPE_MEDIA
         assert body["media"] == {"file_info": "opaque"}
@@ -384,9 +414,7 @@ class TestSendMedia:
         assert result["success"] is False
         assert patch_send_handler.posts == []
 
-    async def test_upload_then_send(
-        self, message_service, patch_send_handler
-    ) -> None:
+    async def test_upload_then_send(self, message_service, patch_send_handler) -> None:
         """一站式入口严格先上传再发送。"""
         patch_send_handler.post_results = [
             {"file_uuid": "f1", "file_info": "opaque", "ttl": 60},
@@ -431,6 +459,7 @@ class TestSendMedia:
         )
         assert result["success"] is False
         assert result["media"]["file_info"] == "opaque"
+
     async def test_normalizes_invalid_ttl(
         self, message_service, patch_send_handler
     ) -> None:
@@ -450,7 +479,11 @@ class TestSendMedia:
     ) -> None:
         """file_name 类型错误时不发请求。"""
         result = await message_service.upload_media_from_url(
-            "user", "u1", 1, "https://cdn.example/a.png", file_name=1  # type: ignore[arg-type]
+            "user",
+            "u1",
+            1,
+            "https://cdn.example/a.png",
+            file_name=1,  # type: ignore[arg-type]
         )
         assert result["success"] is False
         assert patch_send_handler.posts == []
@@ -467,7 +500,9 @@ class TestSendMedia:
             """返回预置安全错误。"""
             return "url 只能指向公网地址", ""
 
-        monkeypatch.setattr(message_service_module, "_validate_public_media_url", reject)
+        monkeypatch.setattr(
+            message_service_module, "_validate_public_media_url", reject
+        )
         result = await message_service.upload_media_from_url(
             "user", "u1", 1, "https://private.example/a.png"
         )
@@ -662,6 +697,7 @@ class TestInteractionService:
             "code": 2,
             "description": "操作频繁",
             "error": None,
+            "duplicate": False,
         }
         call = self.client.calls[0]
         assert call["method"] == "PUT"
@@ -678,6 +714,7 @@ class TestInteractionService:
         """code 必须在官方定义的 0~5 之内。"""
         result = await service.ack("i1", code)  # type: ignore[arg-type]
         assert result["success"] is False
+        assert result["duplicate"] is False
         assert self.client.calls == []
 
     @pytest.mark.parametrize("interaction_id", ["", "   ", None])
@@ -696,13 +733,59 @@ class TestInteractionService:
         assert result["success"] is False
         assert result["error"]
 
+    def test_register_and_unregister_return_structured_results(self, service) -> None:
+        """Service 屏蔽常规冲突并支持替换及 callback 身份保护。"""
+
+        def original(_context, _payload):
+            """返回成功应答码。"""
+            return 0
+
+        def replacement(_context, _payload):
+            """返回失败应答码。"""
+            return 1
+
+        assert service.register_callback("demo", "run", original) == {
+            "success": True,
+            "registered": True,
+            "error": None,
+        }
+        conflict = service.register_callback("demo", "run", replacement)
+        assert conflict["success"] is False
+        assert conflict["registered"] is False
+        assert conflict["error"]
+        assert service.register_callback("demo", "run", replacement, replace=True) == {
+            "success": True,
+            "registered": True,
+            "error": None,
+        }
+        mismatch = service.unregister_callback("demo", "run", original)
+        assert mismatch["success"] is False
+        assert mismatch["removed"] is False
+        assert mismatch["error"]
+        assert service.unregister_callback("demo", "run", replacement) == {
+            "success": True,
+            "removed": True,
+            "error": None,
+        }
+
+    async def test_register_after_close_returns_structured_error(self, service) -> None:
+        """运行时关闭后注册失败也不泄漏异常。"""
+        await service.plugin.interaction_runtime.close()
+
+        result = service.register_callback("demo", "run", lambda _ctx, _payload: 0)
+
+        assert result["success"] is False
+        assert result["registered"] is False
+        assert result["error"]
+
     def test_describe_code(self) -> None:
         """应答码文案查询。"""
         assert QQBotInteractionService.describe_code(4) == "没有权限"
         assert QQBotInteractionService.describe_code(99) == ""
 
     @pytest.mark.parametrize(
-        ("interaction_type", "expected"), [(11, True), (12, True), (13, False), (18, False)]
+        ("interaction_type", "expected"),
+        [(11, True), (12, True), (13, False), (18, False)],
     )
     def test_needs_ack(self, interaction_type: int, expected: bool) -> None:
         """只有消息按钮与单聊快捷菜单需要应答。"""
@@ -766,11 +849,19 @@ class TestRawService:
 
         assert (await service.request("PUT", "/x", {}))["success"] is True
 
-    @pytest.mark.parametrize("method", ["PATCH", "HEAD", "OPTIONS", "TRACE", ""])
+    async def test_supports_patch(self, patch_send_handler) -> None:
+        """PATCH 走本插件 HTTP 客户端。"""
+        client = FakeHttpClient([FakeResponse(200, {})])
+        service = QQBotRawService(make_plugin(http_client=client))
+
+        assert (await service.request("PATCH", "/x", {"enabled": True}))["success"] is True
+        assert client.calls[0]["method"] == "PATCH"
+
+    @pytest.mark.parametrize("method", ["HEAD", "OPTIONS", "TRACE", ""])
     async def test_rejects_unsupported_method(
         self, patch_send_handler, method: str
     ) -> None:
-        """只支持 GET/POST/PUT/DELETE。"""
+        """只支持 GET/POST/PUT/PATCH/DELETE。"""
         client = FakeHttpClient()
         service = QQBotRawService(make_plugin(http_client=client))
 
@@ -794,7 +885,9 @@ class TestRawService:
         client = FakeHttpClient([FakeResponse(200, {})])
         service = QQBotRawService(make_plugin(http_client=client))
 
-        await service.request("PUT", "/interactions/i1", {"code": 0}, force_production=True)
+        await service.request(
+            "PUT", "/interactions/i1", {"code": 0}, force_production=True
+        )
 
         assert client.calls[0]["url"].startswith(API_BASE_PRODUCTION)
 
@@ -831,7 +924,9 @@ class TestRawService:
             async def get_status(self) -> str:
                 return "not-a-dict"
 
-        monkeypatch.setattr(service_api, "get_service", lambda _sig: WeirdAdapterService())
+        monkeypatch.setattr(
+            service_api, "get_service", lambda _sig: WeirdAdapterService()
+        )
         service = QQBotRawService(make_plugin(http_client=FakeHttpClient()))
 
         status = await service.get_status()
@@ -847,7 +942,9 @@ class TestRawService:
             async def get_status(self) -> dict:
                 return {"connected": True, "bot_id": "b1", "env": "sandbox"}
 
-        monkeypatch.setattr(service_api, "get_service", lambda _sig: FakeAdapterService())
+        monkeypatch.setattr(
+            service_api, "get_service", lambda _sig: FakeAdapterService()
+        )
         service = QQBotRawService(make_plugin(http_client=FakeHttpClient()))
 
         status = await service.get_status()

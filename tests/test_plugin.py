@@ -3,13 +3,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from ..config import QQBotExpandConfig
+from ..handlers import QQBotInteractionEventHandler
 from ..plugin import QQBotExpandPlugin
 from ..services import ALL_SERVICES
 from ..src.bridge import ADAPTER_SIGNATURE, resolve_send_handler
-from ..tools import ALL_TOOLS
+from ..tools import ALL_GROUP_ADMIN_TOOLS, ALL_TOOLS
 
 PLUGIN_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 
@@ -34,9 +37,12 @@ class TestManifestConsistency:
             (item["component_type"], item["component_name"])
             for item in load_manifest()["include"]
         }
-        actual = {("service", svc.service_name) for svc in ALL_SERVICES} | {
-            ("tool", tool.tool_name) for tool in ALL_TOOLS
-        }
+        actual = (
+            {("service", svc.service_name) for svc in ALL_SERVICES}
+            | {("tool", tool.tool_name) for tool in ALL_TOOLS}
+            | {("tool", tool.tool_name) for tool in ALL_GROUP_ADMIN_TOOLS}
+            | {("event_handler", QQBotInteractionEventHandler.name)}
+        )
         assert declared == actual
 
     def test_depends_on_adapter(self) -> None:
@@ -63,10 +69,18 @@ class TestConfig:
         assert config.features.enable_tools is True
         assert config.features.allow_raw_request is True
         assert config.features.debug_log_payload is False
+        assert config.interaction.enabled is True
+        assert config.interaction.callback_timeout > 0
+        assert config.interaction.button_data_max_length >= 3
+        assert config.interaction.dedup_ttl > 0
+        assert config.interaction.dedup_capacity > 0
+        assert config.features.enable_group_admin_tools is False
+        assert config.features.group_admin_allowed_group_openids == []
         assert set(config.features.raw_allowed_methods) == {
             "GET",
             "POST",
             "PUT",
+            "PATCH",
             "DELETE",
         }
 
@@ -86,14 +100,18 @@ class TestPluginLifecycle:
         """默认注册全部 Service 与 Tool。"""
         plugin = QQBotExpandPlugin(QQBotExpandConfig())
         components = plugin.get_components()
-        assert set(components) == set(ALL_SERVICES) | set(ALL_TOOLS)
+        assert set(components) == set(ALL_SERVICES) | set(ALL_TOOLS) | {
+            QQBotInteractionEventHandler
+        }
 
     def test_tools_can_be_disabled(self) -> None:
         """关闭 enable_tools 后只注册 Service。"""
         config = QQBotExpandConfig()
         config.features.enable_tools = False
         plugin = QQBotExpandPlugin(config)
-        assert set(plugin.get_components()) == set(ALL_SERVICES)
+        assert set(plugin.get_components()) == set(ALL_SERVICES) | {
+            QQBotInteractionEventHandler
+        }
 
     def test_http_client_absent_before_load(self) -> None:
         """加载前不应持有客户端。"""
@@ -132,6 +150,25 @@ class TestPluginLifecycle:
         plugin.http_client = BrokenClient()  # type: ignore[assignment]
         await plugin.on_plugin_unloaded()
         assert plugin.http_client is None
+
+    async def test_unload_survives_runtime_close_failure(self) -> None:
+        """互动运行时关闭失败也不得阻断 HTTP 客户端清理。"""
+        plugin = QQBotExpandPlugin(QQBotExpandConfig())
+        plugin.interaction_runtime.close = AsyncMock(side_effect=RuntimeError("boom"))
+        await plugin.on_plugin_unloaded()
+        plugin.interaction_runtime.close.assert_awaited_once()
+
+    async def test_runtime_can_reload_after_unload(self) -> None:
+        """同一插件实例重新加载后应恢复 callback 注册能力。"""
+        plugin = QQBotExpandPlugin(QQBotExpandConfig())
+        await plugin.on_plugin_unloaded()
+        await plugin.on_plugin_loaded()
+        try:
+            assert plugin.interaction_runtime.register(
+                "demo", "run", lambda _ctx, _payload: 0
+            ) is True
+        finally:
+            await plugin.on_plugin_unloaded()
 
     async def test_http2_can_be_disabled_by_config(self) -> None:
         """配置关闭 HTTP/2 时不应尝试导入 h2。"""
