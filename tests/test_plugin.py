@@ -15,6 +15,7 @@ from ..src.bridge import ADAPTER_SIGNATURE, resolve_send_handler
 from ..tools import (
     ALL_GROUP_ADMIN_TOOLS,
     ALL_GROUP_INFO_TOOLS,
+    ALL_MENU_PANEL_TOOLS,
     ALL_TOOLS,
     ALL_UTILITY_TOOLS,
 )
@@ -48,6 +49,7 @@ class TestManifestConsistency:
             | {("tool", tool.tool_name) for tool in ALL_GROUP_INFO_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_UTILITY_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_GROUP_ADMIN_TOOLS}
+            | {("tool", tool.tool_name) for tool in ALL_MENU_PANEL_TOOLS}
             | {("event_handler", QQBotInteractionEventHandler.name)}
             | {("event_handler", QQBotGroupJoinRequestEventHandler.name)}
         )
@@ -84,6 +86,15 @@ class TestConfig:
         assert config.interaction.dedup_capacity > 0
         assert config.features.enable_group_admin_tools is False
         assert config.features.group_admin_allowed_group_openids == []
+        assert config.features.enable_menu_panel_service is False
+        assert config.features.enable_menu_panel_tools is False
+        assert config.features.allow_global_menu_write is False
+        assert config.features.allow_panel_create is False
+        assert config.features.allow_panel_delete is False
+        assert config.features.menu_panel_allowed_operator_openids == []
+        assert config.features.menu_panel_allowed_group_openids == []
+        assert config.features.menu_panel_allowed_panel_ids == []
+        assert config.features.menu_panel_profiles == []
         assert set(config.features.raw_allowed_methods) == {
             "GET",
             "POST",
@@ -122,6 +133,17 @@ class TestPluginLifecycle:
             QQBotInteractionEventHandler,
             QQBotGroupJoinRequestEventHandler,
         }
+
+    def test_menu_panel_tools_require_explicit_authorization(self) -> None:
+        """菜单面板 Tool 仅在 Service、Tool 和操作者白名单均开启时注册。"""
+        config = QQBotExpandConfig()
+        config.features.enable_menu_panel_service = True
+        config.features.enable_menu_panel_tools = True
+        plugin = QQBotExpandPlugin(config)
+        assert set(ALL_MENU_PANEL_TOOLS).isdisjoint(plugin.get_components())
+
+        config.features.menu_panel_allowed_operator_openids = ["operator"]
+        assert set(ALL_MENU_PANEL_TOOLS).issubset(plugin.get_components())
 
     def test_http_client_absent_before_load(self) -> None:
         """加载前不应持有客户端。"""

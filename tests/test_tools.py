@@ -25,7 +25,11 @@ from .conftest import FakeHttpClient, make_plugin
 
 
 def make_message(
-    *, chat_type: str = "group", group_id: str = "g1", sender_id: str = "u1"
+    *,
+    chat_type: str = "group",
+    group_id: str = "g1",
+    sender_id: str = "u1",
+    ref_idx: str = "ref-0",
 ) -> SimpleNamespace:
     """构造触发消息替身。
 
@@ -37,11 +41,16 @@ def make_message(
     Returns:
         带 Message 关键字段的替身对象。
     """
+    extra = (
+        {"group_id": group_id, "qq_ref_idx": ref_idx}
+        if chat_type == "group"
+        else {"qq_ref_idx": ref_idx}
+    )
     return SimpleNamespace(
         message_id="m0",
         chat_type=chat_type,
         sender_id=sender_id,
-        extra={"group_id": group_id} if chat_type == "group" else {},
+        extra=extra,
     )
 
 
@@ -325,16 +334,16 @@ class TestSendReplyTool:
     """引用回复 Tool。"""
 
     async def test_defaults_to_trigger_message(self, patch_send_handler) -> None:
-        """不指定被引用 id 时默认引用触发消息。"""
+        """不指定被引用索引时默认引用触发消息携带的 ref_idx。"""
         tool = bind(QQSendReplyTool, make_message())
 
         ok, result = await tool.execute("收到")
 
         assert ok is True
-        assert result["reference_message_id"] == "m0"
+        assert result["reference_message_id"] == "ref-0"
         body = patch_send_handler.posts[-1][2]
         assert body["content"] == "收到"
-        assert body["message_reference"]["message_id"] == "m0"
+        assert body["message_reference"]["message_id"] == "ref-0"
         assert body["message_reference"]["ignore_get_message_error"] is True
 
     async def test_explicit_reference(self, patch_send_handler) -> None:
@@ -359,8 +368,7 @@ class TestSendReplyTool:
         self, patch_send_handler
     ) -> None:
         """触发消息缺 id 且未显式指定时无法引用。"""
-        message = make_message()
-        message.message_id = ""
+        message = make_message(ref_idx="")
         tool = bind(QQSendReplyTool, message)
 
         ok, result = await tool.execute("收到")

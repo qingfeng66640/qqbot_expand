@@ -11,13 +11,15 @@
 - 当前群信息、Bot 群内状态 Service 与仅从当前会话推导目标的查询 Tool；
 - 仅可撤回本插件两分钟内发送消息的 Service/确认 Tool，以及机器人分享链接 Service/受控 Tool；
 - 受信调用方提供 bytes 的官方分片媒体上传 Service；
-- `qqbot_adapter.group_join_request` 的去重消费和受信回调基础设施（默认不自动审批）。
+- `qqbot_adapter.group_join_request` 的去重消费和受信回调基础设施（默认不自动审批）；
+- 自定义菜单与指令面板的完整管理 Service，以及操作者/群/面板/profile 白名单约束的 LLM Tool。
 
 ## 后续强化项
 
 - [ ] 在具备 QQ 平台凭据的集成环境验证群信息/Bot 状态接口的白名单权限；
 - [ ] 在真实大文件环境验证分片上传的预签名 URL、超时与平台限额；
-- [ ] 在真实 Gateway 环境验证 `GROUP_JOIN_REQUEST` 事件投递、管理员权限与回调编排。
+- [ ] 在真实 Gateway 环境验证 `GROUP_JOIN_REQUEST` 事件投递、管理员权限与回调编排；
+- [ ] 在真实 QQ 客户端验证全局菜单展示、面板投放范围、`feature_id` 回调和平台频率限制。
 
 ## 每阶段验收
 

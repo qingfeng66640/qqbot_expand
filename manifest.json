@@ -59,6 +59,12 @@
         },
         {
             "component_type": "service",
+            "component_name": "qqbot_menu_panel",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "service",
             "component_name": "qqbot_raw",
             "dependencies": [],
             "enabled": true
@@ -134,7 +140,14 @@
             "component_name": "qq_send_reply",
             "dependencies": [],
             "enabled": true
-        }
+        },
+        {"component_type": "tool", "component_name": "qq_get_menu_panel", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_list_panels", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_update_menu", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_create_panel", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_update_panel", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_delete_panel", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_update_panel_targets", "dependencies": [], "enabled": true}
     ],
     "entry_point": "plugin.py",
     "min_core_version": "1.2.0-rc",

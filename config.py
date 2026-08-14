@@ -83,6 +83,70 @@ class QQBotExpandConfig(BaseConfig):
             depends_on="enable_tools",
             depends_value=True,
         )
+        enable_menu_panel_service: bool = Field(
+            default=False,
+            description="是否允许调用自定义菜单与指令面板 Service",
+            label="启用菜单面板 Service",
+            tag="security",
+        )
+        enable_menu_panel_tools: bool = Field(
+            default=False,
+            description="是否向 LLM 注册菜单与指令面板管理工具",
+            label="启用菜单面板 LLM 工具",
+            tag="security",
+            depends_on="enable_tools",
+            depends_value=True,
+        )
+        allow_global_menu_write: bool = Field(
+            default=False,
+            description="是否允许覆盖 Bot 对所有用户生效的自定义菜单",
+            label="允许全局菜单写入",
+            tag="security",
+        )
+        allow_panel_create: bool = Field(
+            default=False,
+            description="是否允许创建指令面板",
+            label="允许创建指令面板",
+            tag="security",
+        )
+        allow_panel_delete: bool = Field(
+            default=False,
+            description="是否允许删除指令面板",
+            label="允许删除指令面板",
+            tag="security",
+        )
+        menu_panel_allowed_operator_openids: list[str] = Field(
+            default_factory=list,
+            description="允许 LLM 管理菜单面板的操作者 OpenID 白名单",
+            label="菜单面板操作者白名单",
+            input_type="list",
+            item_type="str",
+            tag="security",
+        )
+        menu_panel_allowed_group_openids: list[str] = Field(
+            default_factory=list,
+            description="允许 LLM 管理菜单面板的群 OpenID 白名单",
+            label="菜单面板群白名单",
+            input_type="list",
+            item_type="str",
+            tag="security",
+        )
+        menu_panel_allowed_panel_ids: list[str] = Field(
+            default_factory=list,
+            description="允许 LLM 操作的指令面板 ID 白名单",
+            label="菜单面板 ID 白名单",
+            input_type="list",
+            item_type="str",
+            tag="security",
+        )
+        menu_panel_profiles: list[dict[str, object]] = Field(
+            default_factory=list,
+            description="受信菜单面板配置档案，供 Tool 选择已授权目标",
+            label="菜单面板配置档案",
+            input_type="list",
+            item_type="dict",
+            tag="security",
+        )
         enable_group_admin_service: bool = Field(
             default=False,
             description="是否允许受信插件调用高权限群管理 Service",

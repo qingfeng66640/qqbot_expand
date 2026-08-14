@@ -124,13 +124,13 @@ class TestResolveTarget:
     def test_private_uses_sender_id(self) -> None:
         """单聊目标即发送者。"""
         target = resolve_target(_message())
-        assert target == ("user", "user-openid", "m1")
+        assert target == ("user", "user-openid", "m1", "")
 
     def test_group_uses_extra_group_id(self) -> None:
         """群聊目标取 extra['group_id']（适配器 from_group 写入）。"""
         message = _message(chat_type="group", extra={"group_id": "group-openid"})
         target = resolve_target(message)
-        assert target == ("group", "group-openid", "m1")
+        assert target == ("group", "group-openid", "m1", "")
 
     def test_group_without_group_id_returns_none(self) -> None:
         """群聊缺 group_id 时无法推导。"""
@@ -153,4 +153,13 @@ class TestResolveTarget:
     def test_strips_whitespace(self) -> None:
         """openid 前后空白应被清理。"""
         target = resolve_target(_message(sender_id="  u1  ", message_id=" m1 "))
-        assert target == ("user", "u1", "m1")
+        assert target == ("user", "u1", "m1", "")
+
+    def test_reference_index_is_independent_from_message_id(self) -> None:
+        """引用索引从 extra 读取，不覆盖被动回复消息 ID。"""
+        target = resolve_target(
+            _message(message_id=" event-id ", extra={"qq_ref_idx": " ref-idx "})
+        )
+        assert target is not None
+        assert target.msg_id == "event-id"
+        assert target.ref_idx == "ref-idx"

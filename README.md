@@ -23,6 +23,7 @@
 | 近期消息撤回、机器人分享链接 | 无 | `qqbot_utility` Service；显式开关的受控 Tool |
 | 本地 bytes 分片媒体上传 | 无 | `qqbot_chunked_media` 受信 Service |
 | 群入群申请事件 | 发布 `qqbot_adapter.group_join_request` | 去重分发受信回调，不自动审批 |
+| 自定义菜单、指令面板 | 无 | `qqbot_menu_panel` Service；默认关闭的受控管理 Tool |
 | 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
 ## 依赖
@@ -76,7 +77,7 @@ token 仍向适配器索取。该客户端挂在插件实例上（`BaseService` 
 - `msg_seq`：与 `msg_id` 联合使用的回复序号，相同 `msg_id + msg_seq` 重复发送会失败；
   带 `msg_id` 时缺省填 1
 
-富媒体方法在上述字段外增加 `media` 上传元数据；详见 [API 参考](docs/api-reference.md)。
+富媒体方法在上述字段外增加 `media` 上传元数据；详见 [API 参考](docs/api-reference.md)。所有最终 `/messages` 成功结果同时返回 `message_id` 与 `ref_idx`：顶层 `message_id` 来自 QQ 响应 `id`，用于撤回；`ref_idx` 来自 `ext_info.ref_idx`，用于后续引用，二者不可互换。引用触发消息时，应使用 Adapter 写入 `Message.extra["qq_ref_idx"]` 的入站 `msg_idx`，而 `Message.message_id` 仍只用于被动回复 `msg_id`。
 
 ### `qqbot_expand:service:qqbot_group_admin`
 
@@ -93,7 +94,7 @@ Expand 与 `qqbot_adapter` 均遵循 QQ 官方统一域名：sandbox 与 product
 | `send_keyboard(target_type, target_id, rows, content="", *, custom_template_id="", params=None, ...)` | 发按钮菜单。QQ 要求 keyboard 必须挂载在 Markdown 上且 Markdown 内容必填，因此 `content` 与 `custom_template_id` 必须提供其一 |
 | `send_ark(target_type, target_id, template_id, kv, ...)` | 发 ark 卡片（`msg_type=3`） |
 | `send_markdown_template(target_type, target_id, custom_template_id, params=None, *, rows=None, ...)` | 发已报备的模板 Markdown，可附带按钮 |
-| `send_reply(target_type, target_id, content, reference_message_id, *, ignore_get_message_error=False, ...)` | 带引用的文本回复 |
+| `send_reply(target_type, target_id, content, reference_message_id, *, ignore_get_message_error=False, ...)` | 带引用的文本回复；`reference_message_id` 必须是 QQ `msg_idx/ref_idx` 引用索引，不是被动回复或撤回消息 ID |
 | `send_embed(target_type, target_id, title, ...)` | 发 embed（`msg_type=4`）。**QQ 侧单聊/群聊均不支持**，保留仅为未来兼容 |
 | `upload_media_from_url(target_type, target_id, file_type, url, *, file_name="")` | 上传公网 URL，返回目标隔离且带 TTL 的 `file_info`，不直接发送 |
 | `send_media(target_type, target_id, file_info, ...)` | 使用已有 `file_info` 发送富媒体（`msg_type=7`） |
@@ -240,6 +241,15 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 | `features.enable_group_info_service` | `true` | 是否启用只读群信息 Service |
 | `features.enable_group_info_tools` | `false` | 是否注册当前群信息/机器人状态 Tool |
 | `features.enable_utility_tools` | `false` | 是否注册撤回与分享链接 Tool |
+| `features.enable_menu_panel_service` | `false` | 是否启用菜单与指令面板 Service |
+| `features.enable_menu_panel_tools` | `false` | 是否注册菜单面板 Tool |
+| `features.allow_global_menu_write` | `false` | 是否允许覆盖全局自定义菜单 |
+| `features.allow_panel_create` | `false` | 是否允许创建指令面板 |
+| `features.allow_panel_delete` | `false` | 是否允许删除指令面板 |
+| `features.menu_panel_allowed_operator_openids` | `[]` | 菜单面板操作者 OpenID 白名单 |
+| `features.menu_panel_allowed_group_openids` | `[]` | 菜单面板群 OpenID 白名单 |
+| `features.menu_panel_allowed_panel_ids` | `[]` | 可操作面板 ID 白名单 |
+| `features.menu_panel_profiles` | `[]` | 受信 profile，固定面板作用域与目标 |
 | `features.enable_group_admin_service` | `false` | 是否启用高权限群管理 Service |
 | `features.enable_group_admin_tools` | `false` | 是否注册群审批/禁言 Tool |
 | `features.group_admin_allowed_group_openids` | `[]` | 群管理 Tool 可操作的群 OpenID 白名单 |

@@ -85,7 +85,30 @@ class TestMessageRouting:
     async def test_returns_message_id(self, message_service) -> None:
         """成功时透出 QQ 返回的消息 id。"""
         result = await message_service.send_reply("user", "u1", "hi", "m0")
-        assert result == {"success": True, "message_id": "msg-1", "error": None}
+        assert result == {
+            "success": True,
+            "message_id": "msg-1",
+            "ref_idx": "",
+            "error": None,
+        }
+
+    async def test_returns_message_ref_idx_without_changing_recall_id(
+        self, message_service, patch_send_handler
+    ) -> None:
+        """外发顶层 id 用于撤回，ext_info.ref_idx 单独用于引用。"""
+        patch_send_handler.post_result = {
+            "id": "message-id",
+            "ext_info": {"ref_idx": "reference-index"},
+        }
+        result = await message_service.send_reply("user", "u1", "hi", "m0")
+        assert result["message_id"] == "message-id"
+        assert result["ref_idx"] == "reference-index"
+        assert message_service.plugin.sent_messages.claim(
+            "message-id", "user", "u1"
+        ) is True
+        assert message_service.plugin.sent_messages.claim(
+            "reference-index", "user", "u1"
+        ) is False
 
     @pytest.mark.parametrize(
         ("target_type", "target_id"),

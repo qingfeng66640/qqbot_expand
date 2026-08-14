@@ -94,6 +94,7 @@ class QQSendKeyboardTool(BaseTool):
             return False, f"按钮消息发送失败: {result['error']}"
         return True, {
             "message_id": result["message_id"],
+            "ref_idx": result["ref_idx"],
             "button_count": len(buttons),
         }
 

@@ -77,7 +77,21 @@
 
 官方已将 REST、Gateway discovery、fallback WSS 和 AccessToken 域名统一为 `api.bot.qq.com`。sandbox 与 production 使用同一网络主机，但仍代表不同的平台运行环境和权限范围。Expand 的 POST 请求委托 Adapter，非 POST 请求复用 Adapter 当前 `base_url`。
 
-## 频控规则
+## 自定义菜单与指令面板（2026-08-14）
+
+自定义菜单仅用于 C2C，全局对所有用户生效。`GET /v2/menu` 限 30 QPM，`PUT /v2/menu`
+限 5 QPM；一级菜单最多 10 项，`menu` 类型最多 5 个二级项且不能继续嵌套。一级类型为
+`switch/send_message/link/menu`，二级类型仅 `send_message/link`，链接必须以 `https://` 开头。
+
+指令面板支持 `c2c/group/channel/dm`，单机器人最多 20 个面板，每个面板最多 20 项；
+item 类型仅 `command/link`，名称最多 14 字符、描述最多 30 字符。`target_type=specific`
+只允许 `c2c + user_openids` 或 `group + group_openids`，`channel/dm` 只能全局投放；创建或
+修改关联对象时单次最多 20 个 OpenID，详情接口最多返回 1000 个关联 OpenID。
+
+面板列表和详情限 30 QPM，创建/更新/删除限 10 QPM，关联对象修改限 60 QPM。菜单点击会
+产生 Interaction type=12，必须对每个 interaction_id ACK 一次；`feature_id` 位于原始事件
+`data.resolved.feature_id`。Expand 复用现有 type=12 ACK 链路，不修改 Adapter 事件契约。
+
 
 | 场景 | 主动消息 | 被动回复 |
 | --- | --- | --- |

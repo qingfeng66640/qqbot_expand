@@ -9,6 +9,7 @@ Tool 的参数由 LLM 填写，若让它自行编造 openid 既不可靠也有�
   （由 ``MessageBuilder.from_group(group_openid)`` 写入）
 - 私聊：目标即发送者，openid 落在 ``message.sender_id``
 - 被动回复所需的 ``msg_id`` 取自 ``message.message_id``
+- 引用回复所需的 ``ref_idx`` 取自 ``message.extra["qq_ref_idx"]``
 """
 from __future__ import annotations
 
@@ -26,11 +27,13 @@ class QQTarget(NamedTuple):
         target_type: ``"user"`` 或 ``"group"``。
         target_id: 目标 openid。
         msg_id: 被动回复关联的原始消息 id，缺失时为空串。
+        ref_idx: 引用回复关联的消息索引，缺失时为空串。
     """
 
     target_type: str
     target_id: str
     msg_id: str
+    ref_idx: str
 
 
 def resolve_target(message: Any) -> QQTarget | None:
@@ -47,14 +50,15 @@ def resolve_target(message: Any) -> QQTarget | None:
 
     msg_id = str(getattr(message, "message_id", "") or "").strip()
     extra = getattr(message, "extra", None) or {}
+    ref_idx = str(extra.get("qq_ref_idx", "") or "").strip()
 
     if str(getattr(message, "chat_type", "") or "") == "group":
         group_openid = str(extra.get("group_id", "") or "").strip()
         if not group_openid:
             return None
-        return QQTarget(TARGET_TYPE_GROUP, group_openid, msg_id)
+        return QQTarget(TARGET_TYPE_GROUP, group_openid, msg_id, ref_idx)
 
     user_openid = str(getattr(message, "sender_id", "") or "").strip()
     if not user_openid:
         return None
-    return QQTarget(TARGET_TYPE_USER, user_openid, msg_id)
+    return QQTarget(TARGET_TYPE_USER, user_openid, msg_id, ref_idx)

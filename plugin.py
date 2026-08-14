@@ -30,11 +30,21 @@ from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
 from .services.group_info_service import QQBotGroupInfoService
 from .services.interaction_service import QQBotInteractionService
+from .services.menu_panel_service import QQBotMenuPanelService
 from .services.message_service import QQBotMessageService
 from .services.raw_service import QQBotRawService
 from .services.utility_service import QQBotUtilityService
 from .tools import ALL_TOOLS
 from .tools.group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
+from .tools.menu_panel import (
+    QQCreatePanelTool,
+    QQDeletePanelTool,
+    QQGetMenuPanelTool,
+    QQListPanelsTool,
+    QQUpdateMenuTool,
+    QQUpdatePanelTargetsTool,
+    QQUpdatePanelTool,
+)
 from .tools.group_info import QQGetCurrentGroupBotStateTool, QQGetCurrentGroupInfoTool
 from .tools.send_ark import QQSendArkTool
 from .tools.send_keyboard import QQSendKeyboardTool
@@ -89,6 +99,7 @@ class QQBotExpandPlugin(BasePlugin):
             QQBotGroupAdminService,
             QQBotGroupInfoService,
             QQBotInteractionService,
+            QQBotMenuPanelService,
             QQBotRawService,
             QQBotUtilityService,
             QQBotInteractionEventHandler,
@@ -107,6 +118,14 @@ class QQBotExpandPlugin(BasePlugin):
         if self._group_admin_tools_enabled():
             components.append(QQReviewGroupJoinRequestTool)
             components.append(QQSetGroupMemberMuteTool)
+        if self._menu_panel_tools_enabled():
+            components.append(QQGetMenuPanelTool)
+            components.append(QQListPanelsTool)
+            components.append(QQUpdateMenuTool)
+            components.append(QQCreatePanelTool)
+            components.append(QQUpdatePanelTool)
+            components.append(QQDeletePanelTool)
+            components.append(QQUpdatePanelTargetsTool)
         return components
 
     async def on_plugin_loaded(self) -> None:
@@ -206,6 +225,17 @@ class QQBotExpandPlugin(BasePlugin):
         features = getattr(self.config, "features", None)
         return self._tools_enabled() and bool(
             getattr(features, "enable_group_info_tools", False)
+        )
+
+    def _menu_panel_tools_enabled(self) -> bool:
+        """仅在显式启用菜单面板 Tool 且存在操作者白名单时注册。"""
+        features = getattr(self.config, "features", None)
+        operators = getattr(features, "menu_panel_allowed_operator_openids", []) or []
+        return (
+            self._tools_enabled()
+            and bool(getattr(features, "enable_menu_panel_tools", False))
+            and bool(getattr(features, "enable_menu_panel_service", False))
+            and any(isinstance(operator, str) and operator.strip() for operator in operators)
         )
 
     def _group_admin_tools_enabled(self) -> bool:

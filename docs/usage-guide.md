@@ -68,6 +68,39 @@ Expand 已消费 `qqbot_adapter.group_join_request`：按 `join_request_id` 去�
 
 ---
 
+## 0.2 自定义菜单与指令面板
+
+先显式启用受信 Service：
+
+```toml
+[features]
+enable_menu_panel_service = true
+```
+
+然后通过 `qqbot_expand:service:qqbot_menu_panel` 调用 `get_menu()`、`update_menu()`、
+`list_panels()`、`create_panel()`、`get_panel()`、`update_panel()`、`delete_panel()` 和
+`update_panel_targets()`。Service 会校验菜单/面板数量、类型、HTTPS 链接、scope 与目标组合。
+
+LLM Tool 默认不注册。启用时还需配置：
+
+```toml
+[features]
+enable_tools = true
+enable_menu_panel_tools = true
+menu_panel_allowed_operator_openids = ["管理员 OpenID"]
+menu_panel_allowed_group_openids = ["允许操作的群 OpenID"]
+menu_panel_allowed_panel_ids = ["允许操作的 panel_id"]
+```
+
+全局菜单写入、面板创建和删除分别由 `allow_global_menu_write`、`allow_panel_create`、
+`allow_panel_delete` 控制。创建和关联对象修改使用 `menu_panel_profiles` 中预先配置的目标，
+LLM 不能临时指定任意用户或群；所有高影响 Tool 均要求 `confirm=true`。
+
+快捷菜单点击属于 Interaction type=12，已有运行时负责 ACK。需要业务功能标识时，可从
+`raw_event.data.resolved.feature_id` 读取；本插件不会修改 Adapter 的标准事件 key 契约。
+
+---
+
 ## 1. 发一排按钮
 
 最常见的需求：回复末尾挂几个按钮，让用户点一下就能继续。
@@ -191,11 +224,16 @@ await msg.send_ark("user", user_openid, ARK_TEMPLATE_THUMBNAIL, kv)
 await msg.send_reply(
     "group", group_openid,
     content="你说的这个我查到了",
-    reference_message_id=某条消息的_id,
+    reference_message_id=某条消息的_ref_idx,
     ignore_get_message_error=True,   # 原消息被撤回时也照常发出
     msg_id=trigger_msg_id,
 )
 ```
+
+`reference_message_id` 不是普通消息 ID：引用入站用户消息时使用 Adapter 写入
+`Message.extra["qq_ref_idx"]` 的 `msg_idx`；引用机器人已发送消息时使用发送结果中的
+`ref_idx`。`msg_id` 则继续使用触发消息的 `Message.message_id`，只负责被动回复。
+发送结果中的 `message_id` 来自 QQ 响应顶层 `id`，用于撤回，不能代替 `ref_idx`。
 
 `ignore_get_message_error=True` 建议默认开。否则被引用的消息一旦被撤回或过期，
 整条消息会发送失败。

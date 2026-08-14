@@ -315,7 +315,7 @@ class QQBotMessageService(BaseService):
             payload: 完整消息体。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
         # 群聊接口把 content 标为必填，非文本消息也需带上空串占位
         if target_type == TARGET_TYPE_GROUP:
@@ -326,12 +326,17 @@ class QQBotMessageService(BaseService):
             return _failure(result["error"])
         data = result["data"] or {}
         message_id = str(data.get("id", ""))
+        ext_info = data.get("ext_info")
+        ref_idx = ""
+        if isinstance(ext_info, dict) and isinstance(ext_info.get("ref_idx"), str):
+            ref_idx = ext_info["ref_idx"].strip()
         registry = getattr(self.plugin, "sent_messages", None)
         if registry is not None:
             registry.record(message_id, target_type, target_id)
         return {
             "success": True,
             "message_id": message_id,
+            "ref_idx": ref_idx,
             "error": None,
         }
 
@@ -424,7 +429,7 @@ class QQBotMessageService(BaseService):
             msg_seq: 回复序号，同一 ``msg_id`` 下必须唯一。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
 
         def builder() -> dict[str, Any]:
@@ -483,7 +488,7 @@ class QQBotMessageService(BaseService):
             msg_seq: 回复序号。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
 
         def builder() -> dict[str, Any]:
@@ -537,7 +542,7 @@ class QQBotMessageService(BaseService):
             msg_seq: 回复序号。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
 
         def builder() -> dict[str, Any]:
@@ -592,7 +597,7 @@ class QQBotMessageService(BaseService):
             msg_seq: 回复序号。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
 
         def builder() -> dict[str, Any]:
@@ -647,7 +652,7 @@ class QQBotMessageService(BaseService):
             msg_seq: 回复序号。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
 
         def builder() -> dict[str, Any]:
@@ -776,6 +781,7 @@ class QQBotMessageService(BaseService):
         return {
             "success": result["success"],
             "message_id": result["message_id"],
+            "ref_idx": result.get("ref_idx", ""),
             "media": None,
             "error": result["error"],
         }
@@ -849,7 +855,7 @@ class QQBotMessageService(BaseService):
             payload: 完整消息体，至少包含 ``msg_type``。
 
         Returns:
-            ``{"success": bool, "message_id": str, "error": str | None}``。
+            包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
         error = _validate_target(target_type, target_id)
         if error:

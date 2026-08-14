@@ -96,6 +96,7 @@ class QQSendArkTool(BaseTool):
             return False, f"ark 卡片发送失败: {result['error']}"
         return True, {
             "message_id": result["message_id"],
+            "ref_idx": result["ref_idx"],
             "template_id": template_id,
         }
 

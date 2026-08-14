@@ -335,10 +335,52 @@ async def upload_bytes(
 
 ---
 
+
+## Service: `qqbot_expand:service:qqbot_menu_panel`
+
+封装 QQ 2026-08-14 自定义菜单与指令面板 API。Service 默认关闭，需设置
+`features.enable_menu_panel_service = true`。所有写入接口在 Service 内校验官方字段和 HTTPS 链接，未知字段不会透传。
+
+| 方法 | HTTP | 路径 | 说明 |
+|---|---|---|---|
+| `get_menu()` | GET | `/v2/menu` | 查询 C2C 全局菜单 |
+| `update_menu(items)` | PUT | `/v2/menu` | 整体覆盖全局菜单，最多 10 个一级项 |
+| `list_panels(scope, cursor="", limit=20)` | GET | `/v2/panels` | 查询指定场景，limit 最大 50 |
+| `create_panel(scope, target_type, panel, ...)` | POST | `/v2/panels` | 创建面板，最多 20 个面板项 |
+| `get_panel(panel_id)` | GET | `/v2/panels/{panel_id}` | 查询详情 |
+| `update_panel(panel_id, panel)` | PUT | `/v2/panels/{panel_id}` | 覆盖面板内容，不改变关联对象 |
+| `delete_panel(panel_id)` | DELETE | `/v2/panels/{panel_id}` | 删除面板 |
+| `update_panel_targets(panel_id, op, ...)` | PUT | `/v2/panels/{panel_id}/target` | 增删 C2C 用户或群关联对象 |
+
+`scope` 只能是 `c2c`、`group`、`channel`、`dm`。`channel` 和 `dm` 只能使用
+`target_type="all"`；`specific` 仅允许 `c2c + user_openids` 或 `group + group_openids`，单次最多 20 个。
+菜单链接和面板链接必须使用 `https://`；面板 item 类型为 `command` 或 `link`，菜单一级项类型为
+`switch`、`send_message`、`link` 或 `menu`，子菜单最多 5 项且不可继续嵌套。
+
+### 菜单与面板 Tool
+
+Tool 还需要 `features.enable_tools = true`、`enable_menu_panel_tools = true`、
+`enable_menu_panel_service = true` 和操作者白名单 `menu_panel_allowed_operator_openids`。
+
+- `qq_get_menu_panel`、`qq_list_panels`：只读查询；
+- `qq_update_menu`：需要 `allow_global_menu_write=true` 和 `confirm=true`；
+- `qq_create_panel`：只使用配置中的 `menu_panel_profiles`，还需 `allow_panel_create=true`；
+- `qq_update_panel`：只能操作 `menu_panel_allowed_panel_ids`，需要 `confirm=true`；
+- `qq_delete_panel`：还需 `allow_panel_delete=true` 和 `confirm=true`；
+- `qq_update_panel_targets`：只使用 profile 固定的面板和目标，并需要 profile 的 `allow_target_update=true`。
+
+Tool 不接受任意跨用户、跨群目标，也不根据 LLM 的自然语言判断管理员权限。
+
+---
+
+## `feature_id` 与快捷菜单回调
+
+现有 Interaction type=12 ACK 链路继续生效。由于本次不修改 Adapter 的标准事件字段，菜单功能标识通过
+`src.interaction_features.extract_feature_id(raw_event)` 从 `data.resolved.feature_id` 读取；字段缺失时安全返回空串，不影响 ACK。
+
+---
+
 ## Service: `qqbot_expand:service:qqbot_raw`
-
-统一的 QQ 开放 API 调用出口。**不注册为 Tool**，不暴露给 LLM。
-
 ### `request`
 
 ```python
