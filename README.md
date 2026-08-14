@@ -26,6 +26,13 @@
 | 自定义菜单、指令面板 | 无 | `qqbot_menu_panel` Service；默认关闭的受控管理 Tool |
 | 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
+## 0.5.0 新功能
+
+- **自定义菜单**：通过 `qqbot_menu_panel` Service 查询或整体更新 C2C 全局菜单，校验菜单层级、项目数量与 HTTPS 链接。
+- **指令面板**：支持查询、创建、更新、删除面板及更新关联对象，覆盖 QQ OpenAPI v2 的八个菜单/面板端点。
+- **受控 LLM 管理**：菜单/面板 Tool 默认不注册；启用后仍受操作者、群、面板 ID 白名单、受信 profile 与 `confirm=true` 共同约束。
+- **引用索引**：发送结果新增 `ref_idx`，引用回复使用 QQ 的 `msg_idx/ref_idx`，与用于撤回的 `message_id` 严格区分。
+
 ## 依赖
 
 - **必须**先安装并配置好 `qqbot_adapter`，且适配器处于已连接状态。

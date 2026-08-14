@@ -66,8 +66,8 @@ class QQBotExpandPlugin(BasePlugin):
     """
 
     plugin_name = "qqbot_expand"
-    plugin_description = "为 qqbot_adapter 补齐按钮/ark/embed/模板 Markdown 等消息类型，并提供统一的 QQ 开放 API 调用通道"
-    plugin_version = "0.4.0"
+    plugin_description = "为 qqbot_adapter 补齐消息、群运营、自定义菜单与指令面板能力，并提供统一的 QQ 开放 API 调用通道"
+    plugin_version = "0.5.0"
     configs = [QQBotExpandConfig]
 
     def __init__(self, config: BaseConfig | None = None) -> None:

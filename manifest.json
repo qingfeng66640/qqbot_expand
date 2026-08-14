@@ -1,8 +1,8 @@
 {
     "name": "qqbot_expand",
     "display_name": "QQ Bot 扩展能力",
-    "version": "0.4.0",
-    "description": "为 qqbot_adapter 补齐按钮键盘、ark 卡片、embed、模板 Markdown、引用回复和富媒体 Service，并提供统一的 QQ 开放 API 调用通道。",
+    "version": "0.5.0",
+    "description": "为 qqbot_adapter 补齐消息、群运营、自定义菜单与指令面板能力，并提供统一的 QQ 开放 API 调用通道。",
     "author": "qf",
     "maintainers": [
         "qf"

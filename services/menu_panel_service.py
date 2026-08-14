@@ -16,7 +16,7 @@ class QQBotMenuPanelService(BaseService):
 
     service_name = "qqbot_menu_panel"
     service_description = "查询和管理 QQ 自定义菜单与指令面板"
-    version = "0.4.0"
+    version = "0.5.0"
 
     def _service_enabled(self) -> bool:
         """检查菜单面板 Service 是否已显式启用。"""
