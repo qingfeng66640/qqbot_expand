@@ -25,6 +25,7 @@ from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
 from .src.interaction import InteractionRuntime
 from .src.join_requests import JoinRequestRuntime
+from .src.managed_panels import ManagedPanelRuntime
 from .src.sent_messages import SentMessageRegistry
 from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
@@ -80,6 +81,7 @@ class QQBotExpandPlugin(BasePlugin):
         self.http_client: httpx.AsyncClient | None = None
         self.interaction_runtime = InteractionRuntime(self)
         self.join_request_runtime = JoinRequestRuntime(self)
+        self.managed_panel_runtime = ManagedPanelRuntime(self)
         self.sent_messages = SentMessageRegistry()
 
     def get_components(self) -> list[type]:
@@ -132,6 +134,7 @@ class QQBotExpandPlugin(BasePlugin):
         """插件加载时重置互动运行时并创建共享 httpx 客户端。"""
         await self.interaction_runtime.reset()
         await self.join_request_runtime.close()
+        await self.managed_panel_runtime.reset()
         http_cfg = getattr(self.config, "http", None)
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -152,6 +155,10 @@ class QQBotExpandPlugin(BasePlugin):
             logger.info(
                 "qqbot_expand 互动回调已启用；请确保 qqbot_adapter 使用 intents=100663296"
             )
+        try:
+            await self.managed_panel_runtime.schedule()
+        except Exception as exc:  # noqa: BLE001 - 对账调度失败不阻断插件加载
+            logger.error(f"调度托管面板对账失败: {exc}")
         tool_count = len(ALL_TOOLS) if self._tools_enabled() else 0
         logger.info(
             f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
@@ -182,6 +189,10 @@ class QQBotExpandPlugin(BasePlugin):
 
     async def on_plugin_unloaded(self) -> None:
         """插件卸载时先清理互动任务，再关闭共享 httpx 客户端。"""
+        try:
+            await self.managed_panel_runtime.close()
+        except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出
+            logger.warning(f"关闭托管面板运行时失败: {exc}")
         try:
             await self.interaction_runtime.close()
         except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出

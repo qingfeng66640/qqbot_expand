@@ -357,6 +357,17 @@ async def upload_bytes(
 菜单链接和面板链接必须使用 `https://`；面板 item 类型为 `command` 或 `link`，菜单一级项类型为
 `switch`、`send_message`、`link` 或 `menu`，子菜单最多 5 项且不可继续嵌套。
 
+### 声明式托管面板
+
+`[managed_panels] enabled=true` 后，插件加载或 reload 会对 `[[managed_panels.items]]` 执行一次
+期望状态对账。每项包含唯一 `managed_key`、`scope`、`target_type`、对应 OpenID 列表和 `panel`。
+对账复用 `create_panel/get_panel/update_panel`：无账本绑定时创建，绑定内容变化时更新，相同则跳过。
+
+所有权只来自本地 `qqbot_expand/managed_panels_ledger`。自动对账不调用列表搜索、删除或关联对象
+修改接口，也不会按名称、remark、内容或目标认领面板。LLM Tool 创建的面板不写该账本，配置移除
+也只停止管理、不删除远端。创建后的 target 不自动变更；功能只支持单进程单活。完整 TOML 示例和
+storage 失败边界见[使用教程](usage-guide.md#配置固定面板并自动对账)。
+
 ### 菜单与面板 Tool
 
 Tool 还需要 `features.enable_tools = true`、`enable_menu_panel_tools = true`、
@@ -369,7 +380,7 @@ Tool 还需要 `features.enable_tools = true`、`enable_menu_panel_tools = true`
 - `qq_delete_panel`：还需 `allow_panel_delete=true` 和 `confirm=true`；
 - `qq_update_panel_targets`：仍只使用 profile 固定的面板和目标，并需要 profile 的 `allow_target_update=true`。
 
-Tool 不接受任意 OpenID。当前会话目标由触发消息推导；跨用户、跨群或批量目标必须由受信 profile 固定，也不根据 LLM 的自然语言判断管理员权限。
+Tool 不接受任意 OpenID。当前会话目标由触发消息推导；跨用户、跨群或批量目标必须由受信 profile 固定，也不根据 LLM 的自然语言判断管理员权限。`menu_panel_profiles` 的字段表、正确 TOML 数组表写法、创建和关联对象修改示例见[使用教程](usage-guide.md#menu_panel_profiles-到底是什么)。
 
 `qq_create_panel` 与 `qq_update_panel` 的 `panel.items` 每项使用：`name`、`desc`、
 `type="command"|"link"`、`only_admin`，链接项额外使用 `link`。这些字段已直接展开在

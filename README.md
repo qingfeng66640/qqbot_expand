@@ -241,6 +241,10 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 
 ## 配置
 
+固定命令或链接建议使用声明式托管面板：在 `[managed_panels]` 中启用功能，通过
+`[[managed_panels.items]]` 声明目标和面板内容，随后 reload 插件即可自动创建或更新。完整字段、
+群聊/C2C/全局示例、修改与停用步骤见[使用教程](docs/usage-guide.md#配置固定面板并自动对账)。
+
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `plugin.enabled` | `true` | 插件总开关 |
@@ -256,7 +260,9 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 | `features.menu_panel_allowed_operator_openids` | `[]` | 菜单面板操作者 OpenID 白名单 |
 | `features.menu_panel_allowed_group_openids` | `[]` | 菜单面板群 OpenID 白名单 |
 | `features.menu_panel_allowed_panel_ids` | `[]` | 可操作面板 ID 白名单 |
-| `features.menu_panel_profiles` | `[]` | 可选的受信 profile，用于跨目标/批量创建及修改面板关联对象；当前会话创建无需配置 |
+| `features.menu_panel_profiles` | `[]` | 可选的受信 profile，用于跨目标/批量创建及修改面板关联对象；当前会话创建无需配置，完整字段和 TOML 示例见[使用教程](docs/usage-guide.md#menu_panel_profiles-到底是什么) |
+| `managed_panels.enabled` | `false` | 插件加载/reload 后是否自动对账本地声明的固定面板 |
+| `managed_panels.items` | `[]` | 带唯一 `managed_key` 的托管面板；只操作本地 ownership ledger 绑定的面板，不删除或接管 LLM 创建的面板，示例见[使用教程](docs/usage-guide.md#配置固定面板并自动对账) |
 | `features.enable_group_admin_service` | `false` | 是否启用高权限群管理 Service |
 | `features.enable_group_admin_tools` | `false` | 是否注册群审批/禁言 Tool |
 | `features.group_admin_allowed_group_openids` | `[]` | 群管理 Tool 可操作的群 OpenID 白名单 |

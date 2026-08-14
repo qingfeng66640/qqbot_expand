@@ -124,6 +124,329 @@ menu_panel_allowed_panel_ids = ["允许操作的 panel_id"]
 不要在面板项中使用按钮键盘的 `label`、`command` 或 `url` 字段。`type="command"` 时
 `name` 就是展示的指令名；`type="link"` 时额外填写 `link`。
 
+### 配置固定面板并自动对账
+
+如果面板内容固定，不需要让 LLM 每次创建，可以使用独立的 `managed_panels` 配置：
+
+```toml
+[features]
+enable_menu_panel_service = true
+
+[managed_panels]
+enabled = true
+
+[[managed_panels.items]]
+managed_key = "main-group-panel"
+scope = "group"
+target_type = "specific"
+group_openids = ["目标群 OpenID"]
+
+[managed_panels.items.panel]
+remark = "固定入口"
+
+[[managed_panels.items.panel.items]]
+name = "/help"
+desc = "查看帮助"
+type = "command"
+only_admin = false
+
+[[managed_panels.items.panel.items]]
+name = "官网"
+desc = "打开官网"
+type = "link"
+only_admin = false
+link = "https://example.com"
+```
+
+插件加载或 reload 后对账一次：首次创建；内容一致时不写入；内容变化时只更新账本明确绑定的
+面板。`managed_key` 必须稳定且唯一，改名相当于声明一个新面板。
+
+#### 托管配置字段
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `managed_key` | 是 | 本地唯一所有权键，支持字母、数字、`_`、`.`、`-`，最多 64 字符；创建后不要改名 |
+| `scope` | 是 | `c2c`、`group`、`channel` 或 `dm` |
+| `target_type` | 是 | `specific` 或 `all` |
+| `user_openids` | 条件必填 | `c2c + specific` 时填写，1~20 个用户 OpenID |
+| `group_openids` | 条件必填 | `group + specific` 时填写，1~20 个群 OpenID |
+| `panel.remark` | 否 | 开发者备注，最多 255 字符，不向用户展示 |
+| `panel.items` | 是 | 1~20 个面板项 |
+| `panel.items[].name` | 是 | 展示名称，最多 14 字符；command 类型下也是填入输入框的指令 |
+| `panel.items[].type` | 是 | `command` 或 `link` |
+| `panel.items[].desc` | 否 | 展示说明，最多 30 字符 |
+| `panel.items[].only_admin` | 否 | 是否仅管理员可操作，默认 `false` |
+| `panel.items[].link` | 条件必填 | `type="link"` 时填写合法 HTTPS URL |
+
+组合规则与普通面板创建一致：
+
+- `c2c + specific` 只填写 `user_openids`；
+- `group + specific` 只填写 `group_openids`；
+- `target_type="all"` 不填写任何 OpenID；
+- `channel` 和 `dm` 只支持 `target_type="all"`；
+- 配置中任意一项非法或 `managed_key` 重复时，本轮对账整体停止，避免只应用部分配置。
+
+#### C2C 和全局面板示例
+
+为指定 C2C 用户创建固定面板：
+
+```toml
+[[managed_panels.items]]
+managed_key = "vip-c2c-panel"
+scope = "c2c"
+target_type = "specific"
+user_openids = ["用户 OpenID"]
+
+[managed_panels.items.panel]
+remark = "VIP 用户入口"
+
+[[managed_panels.items.panel.items]]
+name = "帮助中心"
+type = "link"
+link = "https://example.com/help"
+```
+
+创建对所有群生效的全局面板：
+
+```toml
+[[managed_panels.items]]
+managed_key = "all-groups-panel"
+scope = "group"
+target_type = "all"
+
+[managed_panels.items.panel]
+remark = "全群通用入口"
+
+[[managed_panels.items.panel.items]]
+name = "/help"
+type = "command"
+```
+
+#### 修改与停用
+
+1. 修改已有 `panel.items` 或 `remark`，然后 reload `qqbot_expand`：插件会查询账本绑定的
+   `panel_id`，内容变化时执行更新。
+2. 如果目标群或用户需要变化，请使用新的 `managed_key` 创建新托管面板；自动对账不会修改
+   既有面板的关联对象。
+3. 从配置删除一项只会停止管理，不会删除 QQ 远端面板。需要删除时必须通过原有受控 Tool 或
+   Service 显式操作。
+4. ownership ledger 位于插件 JSON 存储命名空间的 `qqbot_expand/managed_panels_ledger`；不要
+   手工复制其它面板 ID 到该文件，否则等同于显式转移所有权。
+
+对账完成后日志会输出 `created`、`updated`、`unchanged`、`failed` 数量。修改配置后没有变化时，
+先确认已经 reload 插件，并检查 `features.enable_menu_panel_service=true` 与
+`managed_panels.enabled=true`。
+
+安全边界：
+
+- 本地 ownership ledger 是唯一所有权依据；不会按名称、备注、内容或目标扫描认领面板；
+- LLM 通过 `qq_create_panel` 创建的面板不会写入 ledger，因此不会被自动更新；
+- 配置移除只停止管理，不删除 QQ 远端面板，也不会清理 ledger；
+- 自动对账不调用删除或关联对象修改接口；创建后的 target 不自动收敛，变更目标请使用新的
+  `managed_key`；
+- 仅支持单进程、单活 Bot 实例；JSON ledger 不提供跨进程互斥；
+- 如果创建成功但 ledger 保存失败，插件会保守停止，不扫描、认领或删除该孤立面板。
+
+`managed_panels` 是管理员声明的固定期望状态；`menu_panel_profiles` 是 LLM Tool 的受信跨目标
+投放方案；普通 `qq_create_panel` 则是 LLM 当前会话中的自主创建。三者互不接管。
+
+### `menu_panel_profiles` 到底是什么
+
+profile 是管理员预先写进配置文件的**受信投放方案**。它不是面板内容，也不是每次创建
+面板都必须填写的配置。它只保存以下信息：
+
+- 这套方案叫什么名字；
+- 面板要投放到哪种场景；
+- 要投放给哪些固定用户或群；
+- 如果用于修改关联对象，要操作哪个已存在的 `panel_id`。
+
+LLM 调用 Tool 时只能传 `profile_name` 选择方案，不能修改方案里的 OpenID。这样既能实现
+跨会话或批量操作，又不会让模型临时编造任意用户或群。
+
+#### 什么时候不需要 profile
+
+如果只想在当前对话中创建面板，保持：
+
+```toml
+menu_panel_profiles = []
+```
+
+然后让 `qq_create_panel` 省略 `profile_name`：
+
+- 当前是 C2C 私聊：投放给当前私聊用户；
+- 当前是群聊：投放给当前群，且该群必须位于
+  `menu_panel_allowed_group_openids`。
+
+更新全局菜单、查询面板列表、更新面板内容和删除面板也不使用 profile。更新或删除已有
+面板使用 `menu_panel_allowed_panel_ids` 授权。
+
+#### 什么时候需要 profile
+
+以下情况才需要：
+
+1. 在私聊中为其他群创建面板；
+2. 一次为多个群或多个 C2C 用户创建面板；
+3. 创建 `target_type="all"` 的全局面板；
+4. 使用 `qq_update_panel_targets` 为已有面板增加或删除关联用户/群。
+
+#### 正确的 TOML 写法
+
+推荐使用 TOML 的数组表语法。每个 `[[features.menu_panel_profiles]]` 表示一个 profile：
+
+```toml
+[[features.menu_panel_profiles]]
+name = "two-groups"
+scope = "group"
+target_type = "specific"
+group_openids = [
+  "群 OpenID 1",
+  "群 OpenID 2",
+]
+```
+
+不要把 `{ ... }` 写成跨行内联表。下面这种写法会导致整个配置文件解析失败：
+
+```toml
+# 错误示例
+menu_panel_profiles = [
+  {
+    name = "two-groups"
+  }
+]
+```
+
+如果坚持使用内联表，必须完整写在同一行，但可读性较差：
+
+```toml
+menu_panel_profiles = [{ name = "two-groups", scope = "group", target_type = "specific", group_openids = ["群 OpenID 1"] }]
+```
+
+#### profile 字段说明
+
+| 字段 | 创建面板 | 修改关联对象 | 说明 |
+| --- | --- | --- | --- |
+| `name` | 必填 | 必填 | profile 唯一名称，也是 Tool 的 `profile_name`；必须完全一致 |
+| `scope` | 必填 | 不使用 | `c2c`、`group`、`channel` 或 `dm` |
+| `target_type` | 必填 | 不使用 | `specific` 或 `all` |
+| `user_openids` | 条件必填 | 条件必填 | `c2c + specific` 的固定用户列表，最多 20 个 |
+| `group_openids` | 条件必填 | 条件必填 | `group + specific` 的固定群列表，最多 20 个 |
+| `panel_id` | 不使用 | 必填 | 已存在面板的 ID，必须也加入 `menu_panel_allowed_panel_ids` |
+| `allow_target_update` | 不使用 | 必须为 `true` | 明确授权 `qq_update_panel_targets` 修改关联对象 |
+
+组合规则：
+
+- `scope="c2c"`、`target_type="specific"`：只填 `user_openids`；
+- `scope="group"`、`target_type="specific"`：只填 `group_openids`；
+- `target_type="all"`：不要填任何 OpenID；
+- `scope="channel"` 或 `scope="dm"`：只能使用 `target_type="all"`；
+- profile 中所有 `group_openids` 都必须同时存在于
+  `menu_panel_allowed_group_openids`。
+
+#### 示例一：在私聊中为两个群创建面板
+
+```toml
+[features]
+menu_panel_allowed_group_openids = ["群 OpenID 1", "群 OpenID 2"]
+
+[[features.menu_panel_profiles]]
+name = "two-groups"
+scope = "group"
+target_type = "specific"
+group_openids = ["群 OpenID 1", "群 OpenID 2"]
+```
+
+调用 `qq_create_panel` 时传：
+
+```json
+{
+  "panel": {"items": [{"name": "/help", "type": "command"}]},
+  "confirm": true,
+  "profile_name": "two-groups"
+}
+```
+
+#### 示例二：为指定 C2C 用户创建面板
+
+```toml
+[[features.menu_panel_profiles]]
+name = "beta-users"
+scope = "c2c"
+target_type = "specific"
+user_openids = ["用户 OpenID 1", "用户 OpenID 2"]
+```
+
+创建时传 `profile_name="beta-users"`。这里的用户可以不是当前私聊用户，因为目标已经由
+管理员固定在配置中。
+
+#### 示例三：创建全局面板
+
+```toml
+[[features.menu_panel_profiles]]
+name = "all-c2c"
+scope = "c2c"
+target_type = "all"
+```
+
+不要在该 profile 中设置 `user_openids` 或 `group_openids`。
+
+#### 示例四：修改已有面板的关联群
+
+先把面板 ID 和目标群加入相应白名单：
+
+```toml
+[features]
+menu_panel_allowed_panel_ids = ["panel-id-123"]
+menu_panel_allowed_group_openids = ["群 OpenID 1", "群 OpenID 2"]
+
+[[features.menu_panel_profiles]]
+name = "panel-123-groups"
+panel_id = "panel-id-123"
+allow_target_update = true
+group_openids = ["群 OpenID 1", "群 OpenID 2"]
+```
+
+然后调用：
+
+```json
+{
+  "profile_name": "panel-123-groups",
+  "op": "add",
+  "confirm": true
+}
+```
+
+`op="add"` 添加关联，`op="del"` 删除关联。
+
+#### 多个 profile
+
+重复写多个数组表即可：
+
+```toml
+[[features.menu_panel_profiles]]
+name = "group-a"
+scope = "group"
+target_type = "specific"
+group_openids = ["群 A OpenID"]
+
+[[features.menu_panel_profiles]]
+name = "group-b"
+scope = "group"
+target_type = "specific"
+group_openids = ["群 B OpenID"]
+```
+
+#### 常见错误
+
+| 错误 | 原因与处理 |
+| --- | --- |
+| `未找到已授权的菜单面板 profile` | `profile_name` 与配置中的 `name` 不完全一致，或配置仍为 `[]`；当前会话创建可以直接省略 `profile_name` |
+| `profile 包含未授权的群目标` | profile 的群没有全部加入 `menu_panel_allowed_group_openids` |
+| `当前面板不在菜单面板白名单中` | profile 的 `panel_id` 没有加入 `menu_panel_allowed_panel_ids` |
+| `该 profile 未授权修改关联对象` | 缺少 `allow_target_update = true` |
+| `specific 面板的关联对象与 scope 不匹配` | `c2c` 错填了群列表，或 `group` 错填了用户列表 |
+| 插件加载时报 TOML 解析错误 | 使用了跨行 `{ ... }`；改用 `[[features.menu_panel_profiles]]` |
+| 修改配置后仍使用旧行为 | 重启或重载插件，使配置和 Tool Schema 重新加载 |
+
 快捷菜单点击属于 Interaction type=12，已有运行时负责 ACK。需要业务功能标识时，可从
 `raw_event.data.resolved.feature_id` 读取；本插件不会修改 Adapter 的标准事件 key 契约。
 

@@ -5,9 +5,39 @@
 """
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Literal
+
+from pydantic import BaseModel
 
 from src.app.plugin_system.base import BaseConfig, Field, SectionBase, config_section
+
+
+class ManagedPanelItemConfig(BaseModel):
+    """声明式托管面板中的单个项目。"""
+
+    name: str
+    type: Literal["command", "link"]
+    desc: str = ""
+    only_admin: bool = False
+    link: str = ""
+
+
+class ManagedPanelContentConfig(BaseModel):
+    """声明式托管面板的展示内容。"""
+
+    items: list[ManagedPanelItemConfig]
+    remark: str = ""
+
+
+class ManagedPanelConfig(BaseModel):
+    """一项由本插件持有所有权的声明式面板。"""
+
+    managed_key: str
+    scope: Literal["c2c", "group", "channel", "dm"]
+    target_type: Literal["all", "specific"]
+    user_openids: list[str] = Field(default_factory=list)
+    group_openids: list[str] = Field(default_factory=list)
+    panel: ManagedPanelContentConfig
 
 
 class QQBotExpandConfig(BaseConfig):
@@ -178,6 +208,25 @@ class QQBotExpandConfig(BaseConfig):
             tag="debug",
         )
 
+    @config_section("managed_panels", title="声明式托管面板", tag="managed_panels")
+    class ManagedPanelsSection(SectionBase):
+        """由本地配置声明并在插件加载时自动对账的固定面板。"""
+
+        enabled: bool = Field(
+            default=False,
+            description="是否在插件加载或 reload 后自动对账托管面板",
+            label="启用托管面板",
+            tag="managed_panels",
+        )
+        items: list[ManagedPanelConfig] = Field(
+            default_factory=list,
+            description="声明式托管面板列表；managed_key 必须稳定且唯一",
+            label="托管面板",
+            input_type="list",
+            item_type="dict",
+            tag="managed_panels",
+        )
+
     @config_section("interaction", title="互动回调", tag="interaction")
     class InteractionSection(SectionBase):
         """按钮互动路由、回调超时与去重配置。"""
@@ -319,5 +368,6 @@ class QQBotExpandConfig(BaseConfig):
 
     plugin: PluginSection = Field(default_factory=PluginSection)
     features: FeaturesSection = Field(default_factory=FeaturesSection)
+    managed_panels: ManagedPanelsSection = Field(default_factory=ManagedPanelsSection)
     interaction: InteractionSection = Field(default_factory=InteractionSection)
     http: HttpSection = Field(default_factory=HttpSection)
