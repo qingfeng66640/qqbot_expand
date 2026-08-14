@@ -99,6 +99,21 @@ class TestToolRegistration:
             assert "openid" not in properties
             assert "target_type" not in properties
 
+    def test_keyboard_and_ark_nested_schemas(self) -> None:
+        """按钮与 Ark 列表向模型暴露准确字段和枚举。"""
+        keyboard = QQSendKeyboardTool.to_schema()["function"]["parameters"][
+            "properties"
+        ]["buttons"]["items"]
+        assert set(keyboard["properties"]) == {"label", "command", "url"}
+        assert keyboard["required"] == ["label"]
+
+        ark = QQSendArkTool.to_schema()["function"]["parameters"]["properties"]
+        assert ark["style"]["type"] == "string"
+        assert set(ark["style"]["enum"]) == {"list", "card"}
+        ark_item = ark["items"]["items"]
+        assert set(ark_item["properties"]) == {"text", "url"}
+        assert ark_item["required"] == ["text"]
+
 
 class TestSendKeyboardTool:
     """按钮 Tool。"""

@@ -7,6 +7,12 @@ from src.app.plugin_system.base import BaseTool
 
 from ..services.menu_panel_service import QQBotMenuPanelService
 from ..src.targets import resolve_target
+from .schema_types import (
+    MenuItemInput,
+    PanelInput,
+    PanelScope,
+    PanelTargetOp,
+)
 
 __all__ = [
     "ALL_MENU_PANEL_TOOLS",
@@ -122,7 +128,7 @@ class QQListPanelsTool(_MenuPanelTool):
 
     async def execute(
         self,
-        scope: Annotated[str, "c2c、group、channel 或 dm"],
+        scope: Annotated[PanelScope, "面板场景：c2c、group、channel 或 dm"],
         cursor: str = "",
         limit: int = 20,
     ) -> tuple[bool, str | dict]:
@@ -142,7 +148,12 @@ class QQUpdateMenuTool(_MenuPanelTool):
     tool_description = "覆盖 Bot 对所有单聊用户生效的 QQ 自定义菜单，必须 confirm=true。"
 
     async def execute(
-        self, items: list[dict[str, Any]], confirm: bool
+        self,
+        items: Annotated[
+            list[MenuItemInput],
+            "完整菜单项列表；根据 type 使用 switch、send_message、link 或 sub_menu_items",
+        ],
+        confirm: Annotated[bool, "确认覆盖全局菜单；必须为 true"],
     ) -> tuple[bool, str | dict]:
         """经显式确认后覆盖全局菜单。"""
         features = _features(self)
@@ -157,33 +168,58 @@ class QQUpdateMenuTool(_MenuPanelTool):
 
 
 class QQCreatePanelTool(_MenuPanelTool):
-    """通过受信配置 profile 创建指令面板。"""
+    """为当前会话或受信 profile 创建指令面板。"""
 
     tool_name = "qq_create_panel"
-    tool_description = "按已配置的 profile 创建指令面板，目标不能由 LLM 指定，必须 confirm=true。"
+    tool_description = "为当前 QQ 会话创建指令面板；跨目标或批量创建可选受信 profile，必须 confirm=true。"
 
     async def execute(
-        self, profile_name: str, panel: dict[str, Any], confirm: bool
+        self,
+        panel: Annotated[
+            PanelInput,
+            "指令面板内容；项目使用 name/desc/type/only_admin/link，不使用 label/command/url",
+        ],
+        confirm: Annotated[bool, "确认创建；必须为 true"],
+        profile_name: Annotated[
+            str, "可选的受信 profile 名称；留空时使用当前群或当前私聊用户"
+        ] = "",
     ) -> tuple[bool, str | dict]:
-        """使用 profile 内固定的作用域和目标创建面板。"""
+        """为当前会话或 profile 内固定的目标创建面板。"""
         features = _features(self)
         if not bool(getattr(features, "allow_panel_create", False)):
             return False, "创建指令面板未启用"
         if confirm is not True:
             return False, "必须将 confirm 设为 true"
-        error, _ = _authorized(self)
+        error, target = _authorized(self)
         if error:
             return False, error
-        profile_error, profile = _profile(features, profile_name)
-        if profile_error:
-            return False, profile_error
+
+        if isinstance(profile_name, str) and profile_name.strip():
+            profile_error, profile = _profile(features, profile_name)
+            if profile_error:
+                return False, profile_error
+            scope = profile.get("scope")
+            target_type = profile.get("target_type", "all")
+            user_openids = profile.get("user_openids")
+            group_openids = profile.get("group_openids")
+        elif target.target_type == "group":
+            scope = "group"
+            target_type = "specific"
+            user_openids = None
+            group_openids = [target.target_id]
+        else:
+            scope = "c2c"
+            target_type = "specific"
+            user_openids = [target.target_id]
+            group_openids = None
+
         return _result(
             await QQBotMenuPanelService(self.plugin).create_panel(
-                profile.get("scope"),
-                profile.get("target_type", "all"),
+                scope,
+                target_type,
                 panel,
-                user_openids=profile.get("user_openids"),
-                group_openids=profile.get("group_openids"),
+                user_openids=user_openids,
+                group_openids=group_openids,
             )
         )
 
@@ -195,7 +231,13 @@ class QQUpdatePanelTool(_MenuPanelTool):
     tool_description = "更新白名单中的 QQ 指令面板，不改变其关联目标，必须 confirm=true。"
 
     async def execute(
-        self, panel_id: str, panel: dict[str, Any], confirm: bool
+        self,
+        panel_id: Annotated[str, "配置白名单内的面板 ID"],
+        panel: Annotated[
+            PanelInput,
+            "新的面板内容；项目使用 name/desc/type/only_admin/link，不使用 label/command/url",
+        ],
+        confirm: Annotated[bool, "确认覆盖面板内容；必须为 true"],
     ) -> tuple[bool, str | dict]:
         """经显式确认后更新白名单面板。"""
         if confirm is not True:
@@ -236,7 +278,10 @@ class QQUpdatePanelTargetsTool(_MenuPanelTool):
     tool_description = "按已配置 profile 增删面板关联用户或群，目标不能由 LLM 指定，必须 confirm=true。"
 
     async def execute(
-        self, profile_name: str, op: str, confirm: bool
+        self,
+        profile_name: Annotated[str, "包含 panel_id 和固定目标的受信 profile 名称"],
+        op: Annotated[PanelTargetOp, "关联对象操作：add 添加或 del 删除"],
+        confirm: Annotated[bool, "确认修改关联对象；必须为 true"],
     ) -> tuple[bool, str | dict]:
         """使用 profile 中固定的 panel_id 和目标集合更新关联。"""
         if confirm is not True:

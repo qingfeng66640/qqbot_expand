@@ -8,6 +8,7 @@ from src.app.plugin_system.base import BaseTool
 from ..services.group_admin_service import QQBotGroupAdminService
 from ..src.constants import TARGET_TYPE_GROUP
 from ..src.targets import resolve_target
+from .schema_types import GroupReviewOp, MuteMemberInput
 
 __all__ = ["QQReviewGroupJoinRequestTool", "QQSetGroupMemberMuteTool"]
 
@@ -47,7 +48,7 @@ class QQReviewGroupJoinRequestTool(_GroupAdminTool):
     async def execute(
         self,
         member_openid: Annotated[str, "申请人的 member_openid"],
-        op: Annotated[str, "审批动作：approve 通过，decline 拒绝"],
+        op: Annotated[GroupReviewOp, "审批动作：approve 通过，decline 拒绝"],
         join_request_id: Annotated[str, "入群申请 ID；建议从受信插件提供的申请事件中取得"] = "",
         reject_reason: Annotated[str, "拒绝原因；仅 decline 时可填"] = "",
         add_to_member_blacklist: Annotated[bool, "拒绝时是否加入群黑名单"] = False,
@@ -78,7 +79,7 @@ class QQSetGroupMemberMuteTool(_GroupAdminTool):
     async def execute(
         self,
         members: Annotated[
-            list[dict[str, str]],
+            list[MuteMemberInput],
             '禁言操作列表（最多 10 项），每项包含 op=add/update/del、member_openid，add/update 可含 mute_expire_at（RFC3339）',
         ],
     ) -> tuple[bool, str | dict]:

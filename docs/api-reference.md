@@ -364,12 +364,16 @@ Tool 还需要 `features.enable_tools = true`、`enable_menu_panel_tools = true`
 
 - `qq_get_menu_panel`、`qq_list_panels`：只读查询；
 - `qq_update_menu`：需要 `allow_global_menu_write=true` 和 `confirm=true`；
-- `qq_create_panel`：只使用配置中的 `menu_panel_profiles`，还需 `allow_panel_create=true`；
+- `qq_create_panel`：还需 `allow_panel_create=true`；省略 `profile_name` 时只创建到当前群或当前私聊用户，显式 profile 才可使用预配置的跨目标/批量目标；
 - `qq_update_panel`：只能操作 `menu_panel_allowed_panel_ids`，需要 `confirm=true`；
 - `qq_delete_panel`：还需 `allow_panel_delete=true` 和 `confirm=true`；
-- `qq_update_panel_targets`：只使用 profile 固定的面板和目标，并需要 profile 的 `allow_target_update=true`。
+- `qq_update_panel_targets`：仍只使用 profile 固定的面板和目标，并需要 profile 的 `allow_target_update=true`。
 
-Tool 不接受任意跨用户、跨群目标，也不根据 LLM 的自然语言判断管理员权限。
+Tool 不接受任意 OpenID。当前会话目标由触发消息推导；跨用户、跨群或批量目标必须由受信 profile 固定，也不根据 LLM 的自然语言判断管理员权限。
+
+`qq_create_panel` 与 `qq_update_panel` 的 `panel.items` 每项使用：`name`、`desc`、
+`type="command"|"link"`、`only_admin`，链接项额外使用 `link`。这些字段已直接展开在
+Tool JSON Schema 中；不要混用按钮键盘的 `label`、`command`、`url`。
 
 ---
 
@@ -697,15 +701,16 @@ RAW_SUPPORTED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE"})
 
 ## Tool（面向 LLM）
 
-三个 Tool 均限定 `associated_platforms = ["qq"]`，发送目标由 `resolve_target()`
-从 `trigger_message` 自动推导。返回 `(bool, str | dict)`。
+基础消息 Tool 均限定 `associated_platforms = ["qq"]`，发送目标由 `resolve_target()`
+从 `trigger_message` 自动推导。群信息、群管理、实用功能和菜单面板 Tool 还受各自配置开关
+与白名单控制。所有 Tool 返回 `(bool, str | dict)`。
 
 ### `qq_send_keyboard`
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
 | `content` | `str` | 按钮上方的 Markdown 正文 |
-| `buttons` | `list[dict]` | 最多 25 个。`{"label": "...", "command": "..."}` 或 `{"label": "...", "url": "..."}` |
+| `buttons` | `list[KeyboardButtonInput]` | 最多 25 个；`label` 必填，`command` 与 `url` 二选一 |
 | `per_row` | `int` | 每行按钮数，1~5，默认 2 |
 
 `command` 与 `url` 必须二选一。群聊场景自动禁用 `enter`（QQ 侧仅单聊生效）。
@@ -714,9 +719,9 @@ RAW_SUPPORTED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE"})
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
-| `style` | `str` | `"list"`（模板 23）或 `"card"`（模板 24） |
+| `style` | `"list" | "card"` | `"list"`（模板 23）或 `"card"`（模板 24） |
 | `title` | `str` | 卡片标题 |
-| `items` | `list[dict]` | `style="list"` 时的条目，最多 10 条，`{"text": "...", "url": "..."}` |
+| `items` | `list[ArkListItemInput]` | `style="list"` 时的条目，最多 10 条；`text` 必填、`url` 可选 |
 | `description` | `str` | `style="card"` 时的详情描述 |
 | `image_url` | `str` | `style="card"` 时的缩略图，必填 |
 | `link_url` | `str` | `style="card"` 时的跳转链接 |

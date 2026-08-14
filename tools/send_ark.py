@@ -18,6 +18,7 @@ from src.app.plugin_system.base import BaseTool
 from ..services.message_service import QQBotMessageService
 from ..src.constants import ARK_TEMPLATE_LIST, ARK_TEMPLATE_THUMBNAIL
 from ..src.targets import resolve_target
+from .schema_types import ArkListItemInput, ArkStyle
 
 __all__ = ["QQSendArkTool"]
 
@@ -37,10 +38,10 @@ class QQSendArkTool(BaseTool):
 
     async def execute(
         self,
-        style: Annotated[str, "卡片样式，'list' 条目列表 或 'card' 带缩略图的卡片"],
+        style: Annotated[ArkStyle, "卡片样式：list 条目列表或 card 缩略图卡片"],
         title: Annotated[str, "卡片标题，不能为空"],
         items: Annotated[
-            list[dict[str, Any]] | None,
+            list[ArkListItemInput] | None,
             "style='list' 时的条目列表，最多 10 条。每项形如 "
             '{"text": "条目文字"} 或 {"text": "条目文字", "url": "https://..."}；'
             "url 需为已在开放平台报备的域名，未报备则会发送失败",

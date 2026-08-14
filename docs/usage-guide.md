@@ -93,8 +93,36 @@ menu_panel_allowed_panel_ids = ["允许操作的 panel_id"]
 ```
 
 全局菜单写入、面板创建和删除分别由 `allow_global_menu_write`、`allow_panel_create`、
-`allow_panel_delete` 控制。创建和关联对象修改使用 `menu_panel_profiles` 中预先配置的目标，
-LLM 不能临时指定任意用户或群；所有高影响 Tool 均要求 `confirm=true`。
+`allow_panel_delete` 控制。`qq_create_panel` 省略 `profile_name` 时会自动使用当前群或当前私聊用户；
+跨目标/批量创建才需要 `menu_panel_profiles`。修改已有面板的关联对象仍必须使用包含 `panel_id`
+和 `allow_target_update=true` 的 profile。LLM 不能临时指定任意用户或群，所有高影响 Tool 均要求
+`confirm=true`。
+
+创建面板时，`panel.items` 使用 QQ 指令面板字段，不是按钮键盘字段：
+
+```json
+{
+  "items": [
+    {
+      "name": "/help",
+      "desc": "查看帮助",
+      "type": "command",
+      "only_admin": false
+    },
+    {
+      "name": "官网",
+      "desc": "打开官网",
+      "type": "link",
+      "only_admin": false,
+      "link": "https://example.com"
+    }
+  ],
+  "remark": "常用功能"
+}
+```
+
+不要在面板项中使用按钮键盘的 `label`、`command` 或 `url` 字段。`type="command"` 时
+`name` 就是展示的指令名；`type="link"` 时额外填写 `link`。
 
 快捷菜单点击属于 Interaction type=12，已有运行时负责 ACK。需要业务功能标识时，可从
 `raw_event.data.resolved.feature_id` 读取；本插件不会修改 Adapter 的标准事件 key 契约。

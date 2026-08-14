@@ -18,6 +18,7 @@ from ..tools.menu_panel import (
     QQCreatePanelTool,
     QQDeletePanelTool,
     QQGetMenuPanelTool,
+    QQListPanelsTool,
     QQUpdateMenuTool,
     QQUpdatePanelTargetsTool,
     QQUpdatePanelTool,
@@ -298,12 +299,118 @@ class TestMenuPanelTools:
         assert (await delete.execute("other", True))[0] is False
         assert (await delete.execute("panel/1", False))[0] is False
 
-    async def test_create_uses_profile_targets(self, monkeypatch) -> None:
-        """创建 Tool 只使用 profile 中的目标。"""
+    def test_create_schema_makes_profile_optional(self) -> None:
+        """创建面板暴露准确项目结构，且 profile 可选。"""
+        parameters = QQCreatePanelTool.to_schema()["function"]["parameters"]
+        assert set(parameters["required"]) == {"panel", "confirm"}
+        assert parameters["properties"]["profile_name"]["default"] == ""
+        item_schema = parameters["properties"]["panel"]["properties"]["items"][
+            "items"
+        ]
+        assert set(item_schema["properties"]) == {
+            "name",
+            "desc",
+            "type",
+            "only_admin",
+            "link",
+        }
+        assert set(item_schema["required"]) == {"name", "type"}
+        assert item_schema["properties"]["type"]["enum"] == ["command", "link"]
+        assert {"label", "command", "url"}.isdisjoint(item_schema["properties"])
+
+    def test_menu_and_target_enums_are_exposed(self) -> None:
+        """菜单结构、场景和关联操作均向模型暴露枚举。"""
+        menu = QQUpdateMenuTool.to_schema()["function"]["parameters"]["properties"]
+        menu_item = menu["items"]["items"]
+        assert menu_item["properties"]["type"]["enum"] == [
+            "switch",
+            "send_message",
+            "link",
+            "menu",
+        ]
+        assert set(menu_item["properties"]) == {
+            "name",
+            "type",
+            "switch",
+            "send_message",
+            "link",
+            "sub_menu_items",
+        }
+        list_properties = QQListPanelsTool.to_schema()["function"]["parameters"][
+            "properties"
+        ]
+        assert list_properties["scope"]["enum"] == [
+            "c2c",
+            "group",
+            "channel",
+            "dm",
+        ]
+        target_properties = QQUpdatePanelTargetsTool.to_schema()["function"][
+            "parameters"
+        ]["properties"]
+        assert target_properties["op"]["enum"] == ["add", "del"]
+
+    async def test_create_defaults_to_current_private_user(self, monkeypatch) -> None:
+        """私聊省略 profile 时只投放到当前用户。"""
         request = AsyncMock(return_value={"success": True, "data": {"panel_id": "p1"}})
         monkeypatch.setattr(QQBotMenuPanelService, "create_panel", request)
         tool = _tool(QQCreatePanelTool, _enabled_plugin())
-        ok, data = await tool.execute("current-group", VALID_PANEL, True)
+        ok, data = await tool.execute(VALID_PANEL, True)
+        assert ok is True
+        assert data == {"panel_id": "p1"}
+        assert request.await_args.args[:3] == ("c2c", "specific", VALID_PANEL)
+        assert request.await_args.kwargs["user_openids"] == ["operator"]
+        assert request.await_args.kwargs["group_openids"] is None
+
+    async def test_create_defaults_to_current_group(self, monkeypatch) -> None:
+        """群聊省略 profile 时只投放到当前白名单群。"""
+        request = AsyncMock(return_value={"success": True, "data": {"panel_id": "p1"}})
+        monkeypatch.setattr(QQBotMenuPanelService, "create_panel", request)
+        tool = _tool(QQCreatePanelTool, _enabled_plugin(), chat_type="group")
+        ok, _ = await tool.execute(VALID_PANEL, True)
+        assert ok is True
+        assert request.await_args.args[:3] == ("group", "specific", VALID_PANEL)
+        assert request.await_args.kwargs["user_openids"] is None
+        assert request.await_args.kwargs["group_openids"] == ["group-1"]
+
+    async def test_create_current_target_keeps_authorization(self, monkeypatch) -> None:
+        """默认当前目标仍受确认、创建开关和白名单约束。"""
+        request = AsyncMock(return_value={"success": True, "data": {}})
+        monkeypatch.setattr(QQBotMenuPanelService, "create_panel", request)
+
+        tool = _tool(QQCreatePanelTool, _enabled_plugin())
+        assert (await tool.execute(VALID_PANEL, False))[0] is False
+
+        tool = _tool(
+            QQCreatePanelTool,
+            _enabled_plugin(allow_panel_create=False),
+        )
+        assert (await tool.execute(VALID_PANEL, True))[0] is False
+
+        tool = _tool(
+            QQCreatePanelTool,
+            _enabled_plugin(menu_panel_allowed_operator_openids=[]),
+        )
+        assert (await tool.execute(VALID_PANEL, True))[0] is False
+
+        tool = _tool(
+            QQCreatePanelTool,
+            _enabled_plugin(menu_panel_allowed_group_openids=[]),
+            chat_type="group",
+        )
+        assert (await tool.execute(VALID_PANEL, True))[0] is False
+        request.assert_not_awaited()
+
+    async def test_create_uses_explicit_profile_targets(self, monkeypatch) -> None:
+        """显式 profile 仍可使用预配置目标。"""
+        request = AsyncMock(return_value={"success": True, "data": {"panel_id": "p1"}})
+        monkeypatch.setattr(QQBotMenuPanelService, "create_panel", request)
+        tool = _tool(QQCreatePanelTool, _enabled_plugin())
+        ok, data = await tool.execute(
+            VALID_PANEL,
+            True,
+            profile_name="current-group",
+        )
         assert ok is True
         assert data == {"panel_id": "p1"}
         assert request.await_args.kwargs["group_openids"] == ["group-1"]
@@ -325,7 +432,11 @@ class TestMenuPanelTools:
             ]
         )
         tool = _tool(QQCreatePanelTool, plugin, chat_type="group")
-        ok, message = await tool.execute("outside-group", VALID_PANEL, True)
+        ok, message = await tool.execute(
+            VALID_PANEL,
+            True,
+            profile_name="outside-group",
+        )
         assert ok is False
         assert "未授权的群目标" in message
         request.assert_not_awaited()

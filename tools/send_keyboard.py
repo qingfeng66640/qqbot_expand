@@ -22,6 +22,7 @@ from ..src.constants import (
     TARGET_TYPE_USER,
 )
 from ..src.targets import resolve_target
+from .schema_types import KeyboardButtonInput
 
 __all__ = ["QQSendKeyboardTool"]
 
@@ -43,7 +44,7 @@ class QQSendKeyboardTool(BaseTool):
         self,
         content: Annotated[str, "按钮上方显示的 Markdown 正文，不能为空"],
         buttons: Annotated[
-            list[dict[str, Any]],
+            list[KeyboardButtonInput],
             "按钮列表，最多 25 个。每项形如 "
             '{"label": "按钮文字", "command": "点击后发送的指令"} 或 '
             '{"label": "按钮文字", "url": "https://..."}；'

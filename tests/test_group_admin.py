@@ -92,6 +92,24 @@ class TestGroupAdminService:
 class TestGroupAdminTools:
     """验证 Tool 只可操作触发群的白名单。"""
 
+    def test_group_admin_schemas_expose_operations(self) -> None:
+        """审批与禁言操作向模型暴露枚举和成员字段。"""
+        review = QQReviewGroupJoinRequestTool.to_schema()["function"]["parameters"][
+            "properties"
+        ]
+        assert review["op"]["enum"] == ["approve", "decline"]
+
+        mute = QQSetGroupMemberMuteTool.to_schema()["function"]["parameters"][
+            "properties"
+        ]["members"]["items"]
+        assert set(mute["properties"]) == {
+            "op",
+            "member_openid",
+            "mute_expire_at",
+        }
+        assert set(mute["required"]) == {"op", "member_openid"}
+        assert mute["properties"]["op"]["enum"] == ["add", "update", "del"]
+
     async def test_review_tool_rejects_non_whitelisted_group(self) -> None:
         tool = QQReviewGroupJoinRequestTool(make_plugin(http_client=FakeHttpClient()))
         tool.trigger_message = _group_message()

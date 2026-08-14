@@ -30,7 +30,7 @@
 
 - **自定义菜单**：通过 `qqbot_menu_panel` Service 查询或整体更新 C2C 全局菜单，校验菜单层级、项目数量与 HTTPS 链接。
 - **指令面板**：支持查询、创建、更新、删除面板及更新关联对象，覆盖 QQ OpenAPI v2 的八个菜单/面板端点。
-- **受控 LLM 管理**：菜单/面板 Tool 默认不注册；启用后仍受操作者、群、面板 ID 白名单、受信 profile 与 `confirm=true` 共同约束。
+- **受控 LLM 管理**：菜单/面板 Tool 默认不注册；创建面板默认使用当前会话目标，跨目标/批量创建和关联对象修改才使用受信 profile，并继续受白名单与 `confirm=true` 约束。面板项使用 `name/desc/type/only_admin/link`，不使用键盘的 `label/command/url`。
 - **引用索引**：发送结果新增 `ref_idx`，引用回复使用 QQ 的 `msg_idx/ref_idx`，与用于撤回的 `message_id` 严格区分。
 
 ## 依赖
@@ -256,7 +256,7 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 | `features.menu_panel_allowed_operator_openids` | `[]` | 菜单面板操作者 OpenID 白名单 |
 | `features.menu_panel_allowed_group_openids` | `[]` | 菜单面板群 OpenID 白名单 |
 | `features.menu_panel_allowed_panel_ids` | `[]` | 可操作面板 ID 白名单 |
-| `features.menu_panel_profiles` | `[]` | 受信 profile，固定面板作用域与目标 |
+| `features.menu_panel_profiles` | `[]` | 可选的受信 profile，用于跨目标/批量创建及修改面板关联对象；当前会话创建无需配置 |
 | `features.enable_group_admin_service` | `false` | 是否启用高权限群管理 Service |
 | `features.enable_group_admin_tools` | `false` | 是否注册群审批/禁言 Tool |
 | `features.group_admin_allowed_group_openids` | `[]` | 群管理 Tool 可操作的群 OpenID 白名单 |
