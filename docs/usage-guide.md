@@ -237,6 +237,8 @@ type = "command"
 先确认已经 reload 插件，并检查 `features.enable_menu_panel_service=true` 与
 `managed_panels.enabled=true`。
 
+托管面板在插件加载后通过后台任务对账。若 `qqbot_adapter` 仍在启动，插件会等待有限窗口后再请求 QQ API；`managed_panels` 管理的是 `/v2/panels` 指令面板，不是 `/v2/menu` 的 C2C 全局菜单。
+
 安全边界：
 
 - 本地 ownership ledger 是唯一所有权依据；不会按名称、备注、内容或目标扫描认领面板；

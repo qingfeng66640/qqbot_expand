@@ -7,37 +7,52 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from src.app.plugin_system.base import BaseConfig, Field, SectionBase, config_section
 
 
-class ManagedPanelItemConfig(BaseModel):
-    """声明式托管面板中的单个项目。"""
+class ManagedPanelItemConfigRequired(TypedDict):
+    """声明式托管面板项目的必填字段。"""
 
     name: str
     type: Literal["command", "link"]
-    desc: str = ""
-    only_admin: bool = False
-    link: str = ""
 
 
-class ManagedPanelContentConfig(BaseModel):
-    """声明式托管面板的展示内容。"""
+class ManagedPanelItemConfig(ManagedPanelItemConfigRequired, total=False):
+    """声明式托管面板中的单个项目。"""
+
+    desc: str
+    only_admin: bool
+    link: str
+
+
+class ManagedPanelContentConfigRequired(TypedDict):
+    """声明式托管面板内容的必填字段。"""
 
     items: list[ManagedPanelItemConfig]
-    remark: str = ""
 
 
-class ManagedPanelConfig(BaseModel):
-    """一项由本插件持有所有权的声明式面板。"""
+class ManagedPanelContentConfig(ManagedPanelContentConfigRequired, total=False):
+    """声明式托管面板的展示内容。"""
+
+    remark: str
+
+
+class ManagedPanelConfigRequired(TypedDict):
+    """声明式托管面板的必填字段。"""
 
     managed_key: str
     scope: Literal["c2c", "group", "channel", "dm"]
     target_type: Literal["all", "specific"]
-    user_openids: list[str] = Field(default_factory=list)
-    group_openids: list[str] = Field(default_factory=list)
     panel: ManagedPanelContentConfig
+
+
+class ManagedPanelConfig(ManagedPanelConfigRequired, total=False):
+    """一项由本插件持有所有权的声明式面板。"""
+
+    user_openids: list[str]
+    group_openids: list[str]
 
 
 class QQBotExpandConfig(BaseConfig):

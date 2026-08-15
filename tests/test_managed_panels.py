@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import tomllib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
+from ..config import QQBotExpandConfig
 from ..services.menu_panel_service import QQBotMenuPanelService
 from ..src.errors import ERROR_NOT_FOUND
 from ..src.managed_panels import ManagedPanelRuntime
@@ -59,6 +63,55 @@ def _ledger(panel_id: str = "managed-panel") -> dict:
             }
         },
     }
+
+
+class TestManagedPanelConfigPersistence:
+    """配置自动更新不能清洗或字符串化嵌套面板项。"""
+
+    def test_auto_update_preserves_nested_panel_items(self, tmp_path) -> None:
+        """真实加载和回写后，链接项目仍保持结构化字典。"""
+        path = tmp_path / "config.toml"
+        path.write_text(
+            """
+[features]
+enable_menu_panel_service = true
+
+[managed_panels]
+enabled = true
+
+[[managed_panels.items]]
+managed_key = "status-panel"
+scope = "group"
+target_type = "specific"
+group_openids = ["group-1"]
+
+[managed_panels.items.panel]
+remark = "状态入口"
+
+[[managed_panels.items.panel.items]]
+desc = "黄金裔状态页"
+link = "https://follow.epieikeia216.cn/status/follow"
+name = "黄金裔状态页"
+only_admin = false
+type = "link"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        config = QQBotExpandConfig.load(path, auto_update=True)
+        reloaded = QQBotExpandConfig.load(path, auto_update=True)
+        rewritten = tomllib.loads(path.read_text(encoding="utf-8"))
+        item = rewritten["managed_panels"]["items"][0]["panel"]["items"][0]
+
+        assert config.managed_panels.items[0]["panel"]["items"][0] == item
+        assert reloaded.managed_panels.items[0]["panel"]["items"][0] == item
+        assert item == {
+            "desc": "黄金裔状态页",
+            "link": "https://follow.epieikeia216.cn/status/follow",
+            "name": "黄金裔状态页",
+            "only_admin": False,
+            "type": "link",
+        }
 
 
 class TestManagedPanelReconciliation:
@@ -262,7 +315,94 @@ class TestManagedPanelReconciliation:
 
 
 class TestManagedPanelLifecycle:
-    """后台任务调度与关闭。"""
+    """后台任务调度、Adapter 启动等待与关闭。"""
+
+    async def test_adapter_not_ready_retries_then_reconciles(self, monkeypatch) -> None:
+        """Adapter 启动竞态只触发有限重试，随后完成一次对账。"""
+        from ..src.managed_panels import _AdapterNotReady
+
+        runtime = ManagedPanelRuntime(_plugin())
+        calls = 0
+        sleeps: list[float] = []
+
+        async def reconcile():
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise _AdapterNotReady
+
+        async def fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
+        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", fake_sleep)
+
+        await runtime._reconcile_with_adapter_retry()
+
+        assert calls == 3
+        assert sleeps == [0.5, 1.0]
+
+    async def test_adapter_not_ready_retry_is_bounded(self, monkeypatch) -> None:
+        """Adapter 永久未就绪时最多尝试 8 次。"""
+        from ..src.managed_panels import _AdapterNotReady
+
+        runtime = ManagedPanelRuntime(_plugin())
+        calls = 0
+        sleeps: list[float] = []
+
+        async def reconcile():
+            nonlocal calls
+            calls += 1
+            raise _AdapterNotReady
+
+        async def fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
+        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", fake_sleep)
+
+        await runtime._reconcile_with_adapter_retry()
+
+        assert calls == 8
+        assert sleeps == [0.5, 1.0, 2.0, 4.0, 4.0, 4.0, 4.0]
+
+    async def test_non_adapter_failure_is_not_retried(self, monkeypatch) -> None:
+        """普通对账失败不应进入 Adapter 启动重试循环。"""
+        runtime = ManagedPanelRuntime(_plugin())
+        calls = 0
+
+        async def reconcile():
+            nonlocal calls
+            calls += 1
+            raise ValueError("普通失败")
+
+        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
+
+        with pytest.raises(ValueError, match="普通失败"):
+            await runtime._reconcile_with_adapter_retry()
+
+        assert calls == 1
+
+    async def test_close_cancels_adapter_retry_sleep(self, monkeypatch) -> None:
+        """卸载时可取消 Adapter 等待任务。"""
+        from ..src.managed_panels import _AdapterNotReady
+
+        runtime = ManagedPanelRuntime(_plugin())
+        started = asyncio.Event()
+
+        async def reconcile():
+            raise _AdapterNotReady
+
+        async def blocking_sleep(_delay: float) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
+        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", blocking_sleep)
+        assert await runtime.schedule() is True
+        await started.wait()
+        await runtime.close()
+        assert runtime._tasks == {}
 
     async def test_schedule_is_single_flight_and_close_cancels(self, monkeypatch) -> None:
         """同一实例只调度一次，卸载关闭会取消并等待任务。"""

@@ -10,6 +10,7 @@ QQ 开放平台的原始错误里可能带上 token、appid、完整 URL 等敏�
 from __future__ import annotations
 
 __all__ = [
+    "ERROR_ADAPTER_NOT_READY",
     "ERROR_BAD_REQUEST",
     "ERROR_FORBIDDEN",
     "ERROR_GENERIC",
@@ -25,6 +26,7 @@ __all__ = [
 
 # ============ 归类后的对外文案 ============
 
+ERROR_ADAPTER_NOT_READY = "qqbot_adapter 未就绪，无法调用 QQ 开放 API"
 ERROR_TOKEN = "token 获取失败或已失效"
 ERROR_FORBIDDEN = "无权限调用该接口"
 ERROR_NOT_FOUND = "接口不存在或目标已失效"

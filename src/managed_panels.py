@@ -13,7 +13,7 @@ from src.app.plugin_system.api.log_api import get_logger
 from src.kernel.concurrency import TaskInfo, get_task_manager
 
 from ..services.menu_panel_service import QQBotMenuPanelService
-from .errors import ERROR_NOT_FOUND
+from .errors import ERROR_ADAPTER_NOT_READY, ERROR_NOT_FOUND
 from .menu_panel_policy import normalize_panel, normalize_panel_create
 
 logger = get_logger("qqbot_expand")
@@ -23,6 +23,12 @@ _STORE_NAME = "qqbot_expand"
 _LEDGER_NAME = "managed_panels_ledger"
 _MANAGED_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _PROCESS_LOCK = asyncio.Lock()
+_RECONCILE_MAX_ATTEMPTS = 8
+_RECONCILE_BACKOFFS = (0.5, 1.0, 2.0, 4.0, 4.0, 4.0, 4.0)
+
+
+class _AdapterNotReady(Exception):
+    """表示本轮对账因 Adapter 尚未就绪而应重试。"""
 
 
 class ManagedPanelRuntime:
@@ -55,7 +61,7 @@ class ManagedPanelRuntime:
                 or self._tasks
             ):
                 return False
-            coroutine = self.reconcile_once()
+            coroutine = self._reconcile_with_adapter_retry()
             try:
                 task_info = get_task_manager().create_task(
                     coroutine,
@@ -73,6 +79,21 @@ class ManagedPanelRuntime:
                     )
                 )
             return True
+
+    async def _reconcile_with_adapter_retry(self) -> None:
+        """在 Adapter 启动窗口内有限重试对账。"""
+        for attempt in range(_RECONCILE_MAX_ATTEMPTS):
+            try:
+                await self.reconcile_once()
+                return
+            except _AdapterNotReady:
+                if attempt + 1 >= _RECONCILE_MAX_ATTEMPTS:
+                    logger.warning(
+                        "qqbot_adapter 在托管面板对账重试窗口内仍未就绪，"
+                        "本次对账已结束；请 reload 插件重试"
+                    )
+                    return
+                await asyncio.sleep(_RECONCILE_BACKOFFS[attempt])
 
     async def close(self) -> None:
         """停止对账并等待已调度任务退出。"""
@@ -194,6 +215,12 @@ class ManagedPanelRuntime:
                 return None
         return raw
 
+    @staticmethod
+    def _raise_if_adapter_not_ready(response: dict[str, Any]) -> None:
+        """把唯一可重试错误转换成运行时内部信号。"""
+        if response.get("error") == ERROR_ADAPTER_NOT_READY:
+            raise _AdapterNotReady
+
     async def _create_binding(
         self,
         service: QQBotMenuPanelService,
@@ -211,6 +238,7 @@ class ManagedPanelRuntime:
             user_openids=desired.get("user_openids"),
             group_openids=desired.get("group_openids"),
         )
+        self._raise_if_adapter_not_ready(response)
         data = response.get("data") if response.get("success") else None
         panel_id = data.get("panel_id") if isinstance(data, dict) else None
         if not isinstance(panel_id, str) or not panel_id.strip():
@@ -239,6 +267,7 @@ class ManagedPanelRuntime:
         """只查询和更新账本明确绑定的面板。"""
         panel_id = binding["panel_id"].strip()
         response = await service.get_panel(panel_id)
+        self._raise_if_adapter_not_ready(response)
         if not response.get("success"):
             if response.get("error") == ERROR_NOT_FOUND:
                 if await self._create_replacement(
@@ -263,6 +292,7 @@ class ManagedPanelRuntime:
         if self._closed:
             return "failed"
         update = await service.update_panel(panel_id, desired_panel)
+        self._raise_if_adapter_not_ready(update)
         if not update.get("success"):
             logger.warning(
                 f"更新托管面板失败: key={managed_key} panel_id={panel_id} "

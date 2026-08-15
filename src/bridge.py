@@ -27,7 +27,12 @@ from urllib.parse import quote, urlencode
 from src.app.plugin_system.api.log_api import get_logger
 
 from .constants import API_BASE_PRODUCTION
-from .errors import ERROR_GENERIC, sanitize_error, sanitize_http_status
+from .errors import (
+    ERROR_ADAPTER_NOT_READY,
+    ERROR_GENERIC,
+    sanitize_error,
+    sanitize_http_status,
+)
 
 logger = get_logger("qqbot_expand")
 
@@ -190,7 +195,7 @@ async def api_request(
 
     send_handler = resolve_send_handler()
     if send_handler is None:
-        return failure("qqbot_adapter 未就绪，无法调用 QQ 开放 API")
+        return failure(ERROR_ADAPTER_NOT_READY)
 
     base_url = API_BASE_PRODUCTION if force_production else str(send_handler.base_url)
     url = build_url(base_url, path, query)
