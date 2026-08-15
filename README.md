@@ -26,6 +26,14 @@
 | 自定义菜单、指令面板 | 无 | `qqbot_menu_panel` Service；默认关闭的受控管理 Tool |
 | 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
+## 0.6.0 新功能
+
+- **声明式托管面板**：可在 `[managed_panels]` 中声明固定命令和 HTTPS 链接，插件加载或 reload 后自动创建、比对并更新 QQ 指令面板。
+- **严格所有权隔离**：仅操作本地 ownership ledger 明确绑定的面板，不扫描、认领、覆盖或删除 LLM 自主创建的面板；配置移除只停止管理。
+- **稳定配置持久化**：嵌套托管面板配置在框架自动更新和 reload 后保持结构化数据，不再被清洗为空列表。
+- **Adapter 启动等待**：`qqbot_adapter` 尚未就绪时采用有限、可取消的后台重试，避免启动竞态导致首次对账永久失败。
+- **完整使用说明**：补充群聊、C2C、全局指令面板示例，以及 `managed_panels`、`menu_panel_profiles` 和 LLM Tool 的职责区别。
+
 ## 0.5.0 新功能
 
 - **自定义菜单**：通过 `qqbot_menu_panel` Service 查询或整体更新 C2C 全局菜单，校验菜单层级、项目数量与 HTTPS 链接。
