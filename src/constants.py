@@ -53,10 +53,23 @@ PATH_INTERACTION_ACK = "/interactions/{interaction_id}"
 KEYBOARD_MAX_ROWS = 5
 KEYBOARD_MAX_BUTTONS_PER_ROW = 5
 
-# 按钮样式：0 灰色线框，1 蓝色线框
+# 按钮样式：0 灰色线框，1 蓝色线框，3 白色背景+红色字体，4 蓝色背景+白色字体
 BUTTON_STYLE_GREY = 0
 BUTTON_STYLE_BLUE = 1
-BUTTON_STYLES: frozenset[int] = frozenset({BUTTON_STYLE_GREY, BUTTON_STYLE_BLUE})
+BUTTON_STYLE_WHITE_RED = 3
+BUTTON_STYLE_BLUE_WHITE = 4
+BUTTON_STYLES: frozenset[int] = frozenset(
+    {
+        BUTTON_STYLE_GREY,
+        BUTTON_STYLE_BLUE,
+        BUTTON_STYLE_WHITE_RED,
+        BUTTON_STYLE_BLUE_WHITE,
+    }
+)
+
+# 按钮点击二次确认弹窗（action.modal）字段上限
+MODAL_CONTENT_MAX_LENGTH = 40
+MODAL_BUTTON_TEXT_MAX_LENGTH = 4
 
 # 按钮动作类型：0 http/小程序跳转，1 回调后台接口，2 拉起用户输入指令
 ACTION_TYPE_LINK = 0

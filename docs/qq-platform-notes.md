@@ -117,7 +117,7 @@ item 类型仅 `command/link`，名称最多 14 字符、描述最多 30 字符�
 | `id` | 否 | 在一个 keyboard 内唯一，回调时原样带回 |
 | `render_data.label` | 是 | 按钮文字 |
 | `render_data.visited_label` | 是 | 点击后的按钮文字 |
-| `render_data.style` | 是 | 0 灰色线框，1 蓝色线框 |
+| `render_data.style` | 是 | 0 灰色线框，1 蓝色线框，3 白色背景+红色字体，4 蓝色背景+白色字体 |
 | `action.type` | 是 | 0 跳转（http / 小程序 scheme），1 回调后台，2 指令（自动在输入框插入 @bot data） |
 | `action.permission.type` | 是 | 0 指定用户，1 仅管理者，2 所有人，3 指定身份组（仅频道） |
 | `action.permission.specify_user_ids` | 否 | `type=0` 时必填 |
@@ -127,6 +127,10 @@ item 类型仅 `command/link`，名称最多 14 字符、描述最多 30 字符�
 | `action.enter` | 否 | 指令按钮可用，点击后直接发送 data，**仅单聊可用** |
 | `action.anchor` | 否 | 设为 1 时点击唤起选图器，设置后忽略 `enter`；仅手机端 8983+ 单聊 |
 | `action.unsupport_tips` | 是 | 客户端不支持时的 toast 文案 |
+| `group_id`（Button 顶层） | 否 | 分组互斥：同组内一个按钮被点击后其余变灰；**仅 `action.type=1` 回调按钮有效** |
+| `action.modal.content` | 否 | 二次确认提示文本，≤ 40 字符且不能含 URL；非空才弹确认框 |
+| `action.modal.confirm_text` | 否 | 确认按钮文字，≤ 4 字符，默认“确认” |
+| `action.modal.cancel_text` | 否 | 取消按钮文字，≤ 4 字符，默认“取消” |
 
 `action.click_limit` 与 `action.at_bot_show_channel_list` 已被官方标记为弃用，
 本插件不生成这两个字段。

@@ -4,6 +4,7 @@ from __future__ import annotations
 from .chunked_media_service import QQBotChunkedMediaService
 from .group_admin_service import QQBotGroupAdminService
 from .group_info_service import QQBotGroupInfoService
+from .group_members_service import QQBotGroupMembersService
 from .interaction_service import QQBotInteractionService
 from .menu_panel_service import QQBotMenuPanelService
 from .message_service import QQBotMessageService
@@ -15,6 +16,7 @@ __all__ = [
     "QQBotChunkedMediaService",
     "QQBotGroupAdminService",
     "QQBotGroupInfoService",
+    "QQBotGroupMembersService",
     "QQBotInteractionService",
     "QQBotMenuPanelService",
     "QQBotMessageService",
@@ -27,6 +29,7 @@ ALL_SERVICES: list[type] = [
     QQBotChunkedMediaService,
     QQBotGroupAdminService,
     QQBotGroupInfoService,
+    QQBotGroupMembersService,
     QQBotInteractionService,
     QQBotMenuPanelService,
     QQBotRawService,

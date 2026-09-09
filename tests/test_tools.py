@@ -104,7 +104,7 @@ class TestToolRegistration:
         keyboard = QQSendKeyboardTool.to_schema()["function"]["parameters"][
             "properties"
         ]["buttons"]["items"]
-        assert set(keyboard["properties"]) == {"label", "command", "url"}
+        assert set(keyboard["properties"]) == {"label", "command", "url", "group_id", "modal_content"}
         assert keyboard["required"] == ["label"]
 
         ark = QQSendArkTool.to_schema()["function"]["parameters"]["properties"]

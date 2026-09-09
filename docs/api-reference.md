@@ -55,12 +55,34 @@ Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。
 | `delete_join_approval_strategy(strategy_id)` | DELETE | 删除策略 |
 | `execute_join_approval_strategy(strategy_id)` | POST | 异步触发策略 |
 | `update_strategy_whitelist_users(...)` | POST | `add/del` 白名单号码，单次 1–10000 个 |
-| `list_join_requests(group_openid, cursor="", limit=20)` | GET | 查询待审批申请，30 QPM，`limit` 为 1–100 |
+| `list_join_requests(group_openid, cursor="", limit=20)` | GET | 查询待审批申请，30 QPM，`limit` 为 1–50 |
 | `approve_join_request(group_openid, member_openid, op, ...)` | POST | `op` 只能为 `approve` 或 `decline` |
 | `get_restrict_chat_setting(group_openid)` | GET | 查询群成员禁言状态 |
-| `set_member_mute_states(group_openid, members)` | POST | 批量设置成员禁言，单次 1–10 项，`op` 为 `add/update/del` |
+| `set_member_mute_states(group_openid, members)` | POST | 批量设置成员禁言，单次 1–20 项，`op` 为 `add/update/del` |
 
 `qq_review_group_join_request` 和 `qq_set_group_member_mute` 是受控 LLM Tool：默认不注册，只能操作触发消息所在、且位于 `group_admin_allowed_group_openids` 白名单的 QQ 群。策略管理没有 LLM Tool。
+
+---
+
+## Service: `qqbot_expand:service:qqbot_group_members`
+
+群成员与黑名单管理 API。相关 QQ 端点目前处于平台"内邀接入"阶段：机器人未获白名单权限时
+QQ 返回错误码 11253，本插件按普通 API 权限错误脱敏透传，需向平台运营申请。
+
+| 方法 | HTTP | 说明 |
+|---|---|---|
+| `list_members(group_openid, cursor="")` | GET | 分页查询群成员列表，每页最多 30 条，60 QPM；返回 `members[]`（`member_openid`/`username`/`member_role` member-owner-admin/`bot`/`joined_at`/`union_openid`）与 `next_cursor` |
+| `get_member(group_openid, member_openid)` | GET | 查询单个成员详情，30 QPM |
+| `list_blacklist(group_openid, cursor="", limit=20)` | GET | 分页查询群黑名单，`limit` 为 1–100，30 QPM |
+| `update_blacklist(group_openid, op, member_openids)` | POST | `op` 为 `add/del`，单次最多 20 人，60 QPM；`add` 要求目标已不在群中 |
+| `batch_remove_members(group_openid, member_openids, *, add_to_member_blacklist=False)` | POST | 批量移除成员，单次最多 20 人，30 QPM；可选同时拉黑，失败列表见 `add_to_member_blacklist_fail_openids` |
+
+Service 由 `features.enable_group_members_service` 控制（默认 false）。
+
+`qq_query_group_members`（只读）、`qq_manage_group_blacklist`（需 `confirm=true`）、
+`qq_batch_remove_group_members`（需 `confirm=true`）是受控 LLM Tool：默认不注册，需同时开启
+`features.enable_group_members_tools`，且当前群必须位于 `group_members_allowed_group_openids`
+白名单（空白名单拒绝全部群）。
 
 ---
 
@@ -583,6 +605,10 @@ def build_button(
     enter: bool = False,
     anchor: int = 0,
     unsupport_tips: str = "当前客户端版本不支持该按钮",
+    group_id: str = "",
+    modal_content: str = "",
+    modal_confirm_text: str = "",
+    modal_cancel_text: str = "",
 ) -> dict[str, Any]
 ```
 
@@ -590,16 +616,21 @@ def build_button(
 |---|---|
 | `label` | 按钮文字，不能为空 |
 | `visited_label` | 点击后文字，留空复用 `label` |
-| `style` | `0` 灰色线框 / `1` 蓝色线框 |
+| `style` | `0` 灰色线框 / `1` 蓝色线框 / `3` 白底红字 / `4` 蓝底白字 |
 | `action_type` | `0` 跳转 / `1` 回调 / `2` 指令 |
 | `permission_type` | `0` 指定用户 / `1` 仅管理员 / `2` 所有人 / `3` 指定身份组 |
 | `data` | 跳转填 URL，回调填回调数据，指令填指令文本（≤ 100 字符） |
 | `reply` | 指令按钮是否带引用回复 |
 | `enter` | 指令按钮点击后是否自动发送。**仅单聊生效** |
 | `anchor` | 设为 1 唤起选图器，设置后忽略 `enter` |
+| `group_id` | 分组互斥 ID，写入 Button 顶层；**仅回调按钮（`action_type=1`）有效**，同组一点其余变灰 |
+| `modal_content` | 二次确认提示文本（≤ 40 字符，不能含 URL）；非空时点击按钮先弹确认框 |
+| `modal_confirm_text` | 确认按钮文字（≤ 4 字符），留空由 QQ 默认“确认” |
+| `modal_cancel_text` | 取消按钮文字（≤ 4 字符），留空由 QQ 默认“取消” |
 
 校验规则：`permission_type=0` 必须给 `specify_user_ids`；`permission_type=3` 必须给
-`specify_role_ids`；指令按钮 `data` 超 100 字符报错。已弃用的 `click_limit` 与
+`specify_role_ids`；指令按钮 `data` 超 100 字符报错；`group_id` 只允许出现在回调按钮上；
+`modal_content` 为空时不能单独设置确认/取消文字。已弃用的 `click_limit` 与
 `at_bot_show_channel_list` 不生成。
 
 ### `build_keyboard`

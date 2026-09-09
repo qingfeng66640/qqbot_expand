@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from .constants import (
+    ACTION_TYPE_CALLBACK,
     ACTION_TYPE_COMMAND,
     ACTION_TYPES,
     BUTTON_STYLE_GREY,
@@ -20,6 +21,8 @@ from .constants import (
     COMMAND_TEXT_MAX_LENGTH,
     KEYBOARD_MAX_BUTTONS_PER_ROW,
     KEYBOARD_MAX_ROWS,
+    MODAL_BUTTON_TEXT_MAX_LENGTH,
+    MODAL_CONTENT_MAX_LENGTH,
     PERMISSION_TYPE_EVERYONE,
     PERMISSION_TYPES,
 )
@@ -43,6 +46,46 @@ __all__ = [
 # ============ 按钮 / 键盘 ============
 
 
+def _build_modal(content: str, confirm_text: str, cancel_text: str) -> dict[str, Any]:
+    """构造按钮二次确认弹窗（``action.modal``）。
+
+    Args:
+        content: 提示文本；为空时返回空 dict 表示不弹确认框。
+        confirm_text: 确认按钮文字，留空使用 QQ 默认“确认”。
+        cancel_text: 取消按钮文字，留空使用 QQ 默认“取消”。
+
+    Returns:
+        QQ API 要求的 modal 结构；无确认文案时为 ``{}``。
+
+    Raises:
+        ValueError: 任一字段超长或 content 包含 URL。
+    """
+    content = content.strip()
+    if not content:
+        if confirm_text or cancel_text:
+            raise ValueError("modal_content 为空时不能单独设置确认/取消按钮文字")
+        return {}
+    if len(content) > MODAL_CONTENT_MAX_LENGTH:
+        raise ValueError(f"modal_content 长度不能超过 {MODAL_CONTENT_MAX_LENGTH} 字符")
+    lowered = content.lower()
+    if "http://" in lowered or "https://" in lowered:
+        raise ValueError("modal_content 不能包含 URL")
+    modal: dict[str, Any] = {"content": content}
+    if confirm_text:
+        if len(confirm_text) > MODAL_BUTTON_TEXT_MAX_LENGTH:
+            raise ValueError(
+                f"modal_confirm_text 长度不能超过 {MODAL_BUTTON_TEXT_MAX_LENGTH} 字符"
+            )
+        modal["confirm_text"] = confirm_text
+    if cancel_text:
+        if len(cancel_text) > MODAL_BUTTON_TEXT_MAX_LENGTH:
+            raise ValueError(
+                f"modal_cancel_text 长度不能超过 {MODAL_BUTTON_TEXT_MAX_LENGTH} 字符"
+            )
+        modal["cancel_text"] = cancel_text
+    return modal
+
+
 def build_button(
     label: str,
     *,
@@ -58,6 +101,10 @@ def build_button(
     enter: bool = False,
     anchor: int = 0,
     unsupport_tips: str = "当前客户端版本不支持该按钮",
+    group_id: str = "",
+    modal_content: str = "",
+    modal_confirm_text: str = "",
+    modal_cancel_text: str = "",
 ) -> dict[str, Any]:
     """构造单个按钮。
 
@@ -65,7 +112,7 @@ def build_button(
         label: 按钮上显示的文字。
         button_id: 按钮唯一标识，回调时原样带回；留空则由 QQ 侧自动生成。
         visited_label: 点击后按钮显示的文字，留空则复用 ``label``。
-        style: 按钮样式，0 灰色线框 / 1 蓝色线框。
+        style: 按钮样式，0 灰色线框 / 1 蓝色线框 / 3 白底红字 / 4 蓝底白字。
         action_type: 0 跳转链接 / 1 回调后台 / 2 拉起用户输入指令。
         permission_type: 0 指定用户 / 1 仅管理员 / 2 所有人 / 3 指定身份组。
         data: 操作数据。跳转按钮填 URL，回调按钮填回调数据，指令按钮填指令文本。
@@ -75,6 +122,12 @@ def build_button(
         enter: 指令按钮是否自动发送（False 时只填充输入框）。
         anchor: 指令按钮的唤起方式，1 表示唤起选图器。
         unsupport_tips: 客户端不支持该按钮时的提示文案。
+        group_id: 按钮分组 ID。同一分组内一个按钮被点击后其余按钮变灰，
+            仅回调按钮（``action_type=1``）有效。
+        modal_content: 二次确认提示文本；非空时点击按钮先弹确认框。
+            最多 40 字符，不能包含 URL。
+        modal_confirm_text: 确认按钮文字，默认“确认”，最多 4 字符。
+        modal_cancel_text: 取消按钮文字，默认“取消”，最多 4 字符。
 
     Returns:
         QQ API 要求的按钮结构。
@@ -85,7 +138,7 @@ def build_button(
     if not label:
         raise ValueError("按钮 label 不能为空")
     if style not in BUTTON_STYLES:
-        raise ValueError(f"按钮 style 只能是 {sorted(BUTTON_STYLES)}，收到 {style}")
+        raise ValueError(f"按钮 style 只能是 {sorted(BUTTON_STYLES)}（0 灰线框/1 蓝线框/3 白底红字/4 蓝底白字），收到 {style}")
     if action_type not in ACTION_TYPES:
         raise ValueError(f"按钮 action.type 只能是 {sorted(ACTION_TYPES)}，收到 {action_type}")
     if permission_type not in PERMISSION_TYPES:
@@ -94,6 +147,10 @@ def build_button(
         )
     if action_type == ACTION_TYPE_COMMAND and len(data) > COMMAND_TEXT_MAX_LENGTH:
         raise ValueError(f"指令按钮的 data 长度不能超过 {COMMAND_TEXT_MAX_LENGTH} 字符")
+    if group_id and action_type != ACTION_TYPE_CALLBACK:
+        raise ValueError("group_id 分组互斥仅对回调按钮（action_type=1）有效")
+
+    modal = _build_modal(modal_content, modal_confirm_text, modal_cancel_text)
 
     permission: dict[str, Any] = {"type": permission_type}
     if permission_type == 0:
@@ -115,6 +172,8 @@ def build_button(
     }
     if anchor:
         action["anchor"] = anchor
+    if modal:
+        action["modal"] = modal
 
     button: dict[str, Any] = {
         "render_data": {
@@ -124,6 +183,8 @@ def build_button(
         },
         "action": action,
     }
+    if group_id:
+        button["group_id"] = group_id
     if button_id:
         button["id"] = button_id
     return button

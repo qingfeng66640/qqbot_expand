@@ -93,6 +93,10 @@ class KeyboardButtonInput(KeyboardButtonRequired, total=False):
 
     command: Annotated[str, "指令按钮内容；与 url 必须且只能提供一个"]
     url: Annotated[str, "链接按钮 URL；与 command 必须且只能提供一个"]
+    group_id: Annotated[str, "可选按钮分组 ID；同一分组内一个被点击后其余变灰"]
+    modal_content: Annotated[
+        str, "可选二次确认提示文本（≤40 字符，不能含 URL）；提供后点击按钮先弹确认框"
+    ]
 
 
 class ArkListItemRequired(TypedDict):

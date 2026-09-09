@@ -3,6 +3,11 @@ from __future__ import annotations
 
 from .group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
 from .group_info import QQGetCurrentGroupBotStateTool, QQGetCurrentGroupInfoTool
+from .group_members import (
+    QQBatchRemoveGroupMembersTool,
+    QQManageGroupBlacklistTool,
+    QQQueryGroupMembersTool,
+)
 from .menu_panel import ALL_MENU_PANEL_TOOLS
 from .send_ark import QQSendArkTool
 from .send_keyboard import QQSendKeyboardTool
@@ -12,11 +17,15 @@ from .utility import QQGenerateShareLinkTool, QQRecallCurrentMessageTool
 __all__ = [
     "ALL_GROUP_ADMIN_TOOLS",
     "ALL_GROUP_INFO_TOOLS",
+    "ALL_GROUP_MEMBERS_TOOLS",
     "ALL_MENU_PANEL_TOOLS",
     "ALL_UTILITY_TOOLS",
     "ALL_TOOLS",
+    "QQBatchRemoveGroupMembersTool",
     "QQGetCurrentGroupBotStateTool",
     "QQGetCurrentGroupInfoTool",
+    "QQManageGroupBlacklistTool",
+    "QQQueryGroupMembersTool",
     "QQReviewGroupJoinRequestTool",
     "QQSetGroupMemberMuteTool",
     "QQSendArkTool",
@@ -39,6 +48,12 @@ ALL_UTILITY_TOOLS: list[type] = [
 ALL_GROUP_ADMIN_TOOLS: list[type] = [
     QQReviewGroupJoinRequestTool,
     QQSetGroupMemberMuteTool,
+]
+
+ALL_GROUP_MEMBERS_TOOLS: list[type] = [
+    QQQueryGroupMembersTool,
+    QQManageGroupBlacklistTool,
+    QQBatchRemoveGroupMembersTool,
 ]
 
 ALL_TOOLS: list[type] = [

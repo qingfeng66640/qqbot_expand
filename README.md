@@ -19,6 +19,7 @@
 | 富媒体 URL 上传与发送（`msg_type=7`） | 底层出站/分片能力 | `upload_media_from_url()` / `send_media()` / `send_media_from_url()` |
 | GET / PUT / PATCH / DELETE 接口 | 无 | `qqbot_raw.request()` |
 | 群入群审批策略、申请审批、成员禁言 | 无 | `qqbot_group_admin` Service；受控审批/禁言 Tool |
+| 群成员列表/详情、群黑名单、批量移除成员 | 无 | `qqbot_group_members` Service；受控查询/黑名单/移除 Tool（平台内邀中） |
 | 当前群信息、Bot 群内状态 | 无 | `qqbot_group_info` Service；当前群只读 Tool |
 | 近期消息撤回、机器人分享链接 | 无 | `qqbot_utility` Service；显式开关的受控 Tool |
 | 本地 bytes 分片媒体上传 | 无 | `qqbot_chunked_media` 受信 Service |
@@ -27,6 +28,10 @@
 | 互动 callback | 发布专用 EventBus 事件，不 ACK | 集中路由、权限、幂等、ACK 与 `event_id` 回复 |
 
 ## 0.6.0 新功能
+
+- **按钮增强**：`build_button()` 支持 `style=3/4` 新样式、`group_id` 分组互斥（仅回调按钮）与 `modal` 点击二次确认。
+- **群成员管理**：新增 `qqbot_group_members` Service，覆盖群成员列表/详情、群黑名单查询与增删、批量移除成员五个官方新端点（平台内邀中，错误码 11253 表示未获白名单权限）。
+- **对齐平台新上限**：单次禁言 10 → 20 人；入群申请列表 `limit` 上限 100 → 50。
 
 - **声明式托管面板**：可在 `[managed_panels]` 中声明固定命令和 HTTPS 链接，插件加载或 reload 后自动创建、比对并更新 QQ 指令面板。
 - **严格所有权隔离**：仅操作本地 ownership ledger 明确绑定的面板，不扫描、认领、覆盖或删除 LLM 自主创建的面板；配置移除只停止管理。
@@ -274,6 +279,9 @@ Expand 时 callback 不会 ACK，因此不要发送 `action.type=1` 按钮。互
 | `features.enable_group_admin_service` | `false` | 是否启用高权限群管理 Service |
 | `features.enable_group_admin_tools` | `false` | 是否注册群审批/禁言 Tool |
 | `features.group_admin_allowed_group_openids` | `[]` | 群管理 Tool 可操作的群 OpenID 白名单 |
+| `features.enable_group_members_service` | `false` | 是否启用群成员/黑名单/批量移除 Service（平台内邀中） |
+| `features.enable_group_members_tools` | `false` | 是否注册群成员查询/黑名单/移除 Tool |
+| `features.group_members_allowed_group_openids` | `[]` | 群成员管理 Tool 可操作的群 OpenID 白名单 |
 | `features.allow_raw_request` | `true` | raw 通道总开关 |
 | `features.raw_allowed_methods` | `["GET","POST","PUT","PATCH","DELETE"]` | raw 通道允许的方法白名单 |
 | `features.debug_log_payload` | `false` | 打印完整请求体（含敏感内容，仅调试用） |

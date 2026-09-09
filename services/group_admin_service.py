@@ -173,8 +173,8 @@ class QQBotGroupAdminService(BaseService):
 
     async def list_join_requests(self, group_openid: str, cursor: str = "", limit: int = 20) -> dict[str, Any]:
         error, group_openid = _path_segment(group_openid, "group_openid")
-        if error or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
-            return failure(error or "limit 必须在 1~100 之间")
+        if error or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+            return failure(error or "limit 必须在 1~50 之间")
         return await self._request("GET", f"/v2/groups/{group_openid}/join_request_list", query={"cursor": cursor, "limit": limit})
 
     async def approve_join_request(self, group_openid: str, member_openid: str, op: str, *, join_request_id: str = "", reject_reason: str = "", add_to_member_blacklist: bool = False) -> dict[str, Any]:
@@ -200,8 +200,8 @@ class QQBotGroupAdminService(BaseService):
 
     async def set_member_mute_states(self, group_openid: str, members: list[dict[str, Any]]) -> dict[str, Any]:
         error, group_openid = _path_segment(group_openid, "group_openid")
-        if error or not isinstance(members, list) or not 1 <= len(members) <= 10:
-            return failure(error or "members 数量必须在 1~10 之间")
+        if error or not isinstance(members, list) or not 1 <= len(members) <= 20:
+            return failure(error or "members 数量必须在 1~20 之间")
         normalized_members: list[dict[str, Any]] = []
         for member in members:
             member_error, normalized = _mute_member(member)

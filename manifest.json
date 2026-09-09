@@ -53,6 +53,12 @@
         },
         {
             "component_type": "service",
+            "component_name": "qqbot_group_members",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "service",
             "component_name": "qqbot_interaction",
             "dependencies": [],
             "enabled": true
@@ -123,6 +129,9 @@
             "dependencies": [],
             "enabled": true
         },
+        {"component_type": "tool", "component_name": "qq_query_group_members", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_manage_group_blacklist", "dependencies": [], "enabled": true},
+        {"component_type": "tool", "component_name": "qq_batch_remove_group_members", "dependencies": [], "enabled": true},
         {
             "component_type": "tool",
             "component_name": "qq_send_keyboard",

@@ -15,6 +15,7 @@ from ..src.bridge import ADAPTER_SIGNATURE, resolve_send_handler
 from ..tools import (
     ALL_GROUP_ADMIN_TOOLS,
     ALL_GROUP_INFO_TOOLS,
+    ALL_GROUP_MEMBERS_TOOLS,
     ALL_MENU_PANEL_TOOLS,
     ALL_TOOLS,
     ALL_UTILITY_TOOLS,
@@ -49,6 +50,7 @@ class TestManifestConsistency:
             | {("tool", tool.tool_name) for tool in ALL_GROUP_INFO_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_UTILITY_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_GROUP_ADMIN_TOOLS}
+            | {("tool", tool.tool_name) for tool in ALL_GROUP_MEMBERS_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_MENU_PANEL_TOOLS}
             | {("event_handler", QQBotInteractionEventHandler.name)}
             | {("event_handler", QQBotGroupJoinRequestEventHandler.name)}

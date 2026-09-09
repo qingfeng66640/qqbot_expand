@@ -48,7 +48,7 @@ class QQSendKeyboardTool(BaseTool):
             "按钮列表，最多 25 个。每项形如 "
             '{"label": "按钮文字", "command": "点击后发送的指令"} 或 '
             '{"label": "按钮文字", "url": "https://..."}；'
-            "command 与 url 二选一，label 必填",
+            "command 与 url 二选一，label 必填。可选 modal_content 提供点击二次确认提示（≤40 字符，不能含 URL）",
         ],
         per_row: Annotated[int, "每行放几个按钮，1~5，默认 2"] = 2,
     ) -> tuple[bool, str | dict]:
@@ -124,10 +124,16 @@ class QQSendKeyboardTool(BaseTool):
             label = str(item.get("label", "") or "").strip()
             command = str(item.get("command", "") or "").strip()
             url = str(item.get("url", "") or "").strip()
+            modal_content = str(item.get("modal_content", "") or "").strip()
             if not label:
                 raise ValueError(f"第 {index + 1} 个按钮缺少 label")
             if bool(command) == bool(url):
                 raise ValueError(f"第 {index + 1} 个按钮必须且只能提供 command 或 url 之一")
+            if str(item.get("group_id", "") or "").strip():
+                raise ValueError(
+                    f"第 {index + 1} 个按钮不支持 group_id：分组互斥仅对回调按钮有效，"
+                    "本 Tool 只构造指令/链接按钮"
+                )
 
             if url:
                 built.append(
@@ -136,6 +142,7 @@ class QQSendKeyboardTool(BaseTool):
                         style=BUTTON_STYLE_BLUE,
                         action_type=ACTION_TYPE_LINK,
                         data=url,
+                        modal_content=modal_content,
                     )
                 )
             else:
@@ -145,6 +152,7 @@ class QQSendKeyboardTool(BaseTool):
                         action_type=ACTION_TYPE_COMMAND,
                         data=command,
                         enter=auto_enter,
+                        modal_content=modal_content,
                     )
                 )
 

@@ -30,6 +30,7 @@ from .src.sent_messages import SentMessageRegistry
 from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
 from .services.group_info_service import QQBotGroupInfoService
+from .services.group_members_service import QQBotGroupMembersService
 from .services.interaction_service import QQBotInteractionService
 from .services.menu_panel_service import QQBotMenuPanelService
 from .services.message_service import QQBotMessageService
@@ -37,6 +38,11 @@ from .services.raw_service import QQBotRawService
 from .services.utility_service import QQBotUtilityService
 from .tools import ALL_TOOLS
 from .tools.group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
+from .tools.group_members import (
+    QQBatchRemoveGroupMembersTool,
+    QQManageGroupBlacklistTool,
+    QQQueryGroupMembersTool,
+)
 from .tools.menu_panel import (
     QQCreatePanelTool,
     QQDeletePanelTool,
@@ -100,6 +106,7 @@ class QQBotExpandPlugin(BasePlugin):
             QQBotChunkedMediaService,
             QQBotGroupAdminService,
             QQBotGroupInfoService,
+            QQBotGroupMembersService,
             QQBotInteractionService,
             QQBotMenuPanelService,
             QQBotRawService,
@@ -120,6 +127,10 @@ class QQBotExpandPlugin(BasePlugin):
         if self._group_admin_tools_enabled():
             components.append(QQReviewGroupJoinRequestTool)
             components.append(QQSetGroupMemberMuteTool)
+        if self._group_members_tools_enabled():
+            components.append(QQQueryGroupMembersTool)
+            components.append(QQManageGroupBlacklistTool)
+            components.append(QQBatchRemoveGroupMembersTool)
         if self._menu_panel_tools_enabled():
             components.append(QQGetMenuPanelTool)
             components.append(QQListPanelsTool)
@@ -256,5 +267,15 @@ class QQBotExpandPlugin(BasePlugin):
         return (
             self._tools_enabled()
             and bool(getattr(features, "enable_group_admin_tools", False))
+            and any(isinstance(group, str) and group.strip() for group in allowed_groups)
+        )
+
+    def _group_members_tools_enabled(self) -> bool:
+        """仅在显式启用且配置目标群白名单时注册群成员管理 Tool。"""
+        features = getattr(self.config, "features", None)
+        allowed_groups = getattr(features, "group_members_allowed_group_openids", []) or []
+        return (
+            self._tools_enabled()
+            and bool(getattr(features, "enable_group_members_tools", False))
             and any(isinstance(group, str) and group.strip() for group in allowed_groups)
         )

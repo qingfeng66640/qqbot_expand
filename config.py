@@ -216,6 +216,30 @@ class QQBotExpandConfig(BaseConfig):
             depends_on="enable_group_admin_tools",
             depends_value=True,
         )
+        enable_group_members_service: bool = Field(
+            default=False,
+            description="是否允许受信插件调用群成员列表/黑名单/批量移除 Service",
+            label="启用群成员管理 Service",
+            tag="security",
+        )
+        enable_group_members_tools: bool = Field(
+            default=False,
+            description="是否向 LLM 注册群成员查询、黑名单管理与批量移除工具",
+            label="启用群成员管理 LLM 工具",
+            tag="security",
+            depends_on="enable_tools",
+            depends_value=True,
+        )
+        group_members_allowed_group_openids: list[str] = Field(
+            default_factory=list,
+            description="允许 LLM 群成员管理工具操作的群 OpenID 白名单；留空时拒绝所有群",
+            label="群成员管理允许群 OpenID",
+            input_type="list",
+            item_type="str",
+            tag="security",
+            depends_on="enable_group_members_tools",
+            depends_value=True,
+        )
         debug_log_payload: bool = Field(
             default=False,
             description="开启后将发往 QQ API 的完整请求体打印到日志（可能包含完整回复内容）",

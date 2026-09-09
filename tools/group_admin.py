@@ -80,7 +80,7 @@ class QQSetGroupMemberMuteTool(_GroupAdminTool):
         self,
         members: Annotated[
             list[MuteMemberInput],
-            '禁言操作列表（最多 10 项），每项包含 op=add/update/del、member_openid，add/update 可含 mute_expire_at（RFC3339）',
+            '禁言操作列表（最多 20 项），每项包含 op=add/update/del、member_openid，add/update 可含 mute_expire_at（RFC3339）',
         ],
     ) -> tuple[bool, str | dict]:
         """更新当前群成员禁言状态。"""

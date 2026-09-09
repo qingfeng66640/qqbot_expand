@@ -145,6 +145,8 @@ def make_plugin(
     enable_group_admin_tools: bool = True,
     enable_group_info_service: bool = True,
     enable_group_info_tools: bool = False,
+    enable_group_members_service: bool = True,
+    enable_group_members_tools: bool = False,
     enable_utility_tools: bool = False,
     enable_menu_panel_service: bool = False,
     enable_menu_panel_tools: bool = False,
@@ -156,6 +158,7 @@ def make_plugin(
     menu_panel_allowed_panel_ids: list[str] | None = None,
     menu_panel_profiles: list[dict[str, Any]] | None = None,
     group_admin_allowed_group_openids: list[str] | None = None,
+    group_members_allowed_group_openids: list[str] | None = None,
     callback_timeout: float = 5.0,
     button_data_max_length: int = 1024,
     dedup_ttl: float = 300.0,
@@ -183,6 +186,8 @@ def make_plugin(
         enable_group_admin_tools=enable_group_admin_tools,
         enable_group_info_service=enable_group_info_service,
         enable_group_info_tools=enable_group_info_tools,
+        enable_group_members_service=enable_group_members_service,
+        enable_group_members_tools=enable_group_members_tools,
         enable_utility_tools=enable_utility_tools,
         enable_menu_panel_service=enable_menu_panel_service,
         enable_menu_panel_tools=enable_menu_panel_tools,
@@ -194,6 +199,7 @@ def make_plugin(
         menu_panel_allowed_panel_ids=menu_panel_allowed_panel_ids or [],
         menu_panel_profiles=menu_panel_profiles or [],
         group_admin_allowed_group_openids=group_admin_allowed_group_openids or [],
+        group_members_allowed_group_openids=group_members_allowed_group_openids or [],
         debug_log_payload=debug_log_payload,
     )
     http = SimpleNamespace(

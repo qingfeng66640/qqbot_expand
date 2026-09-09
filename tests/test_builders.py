@@ -113,6 +113,52 @@ class TestBuildButton:
         button = build_button("A", action_type=ACTION_TYPE_LINK, data=long_url)
         assert button["action"]["data"] == long_url
 
+    @pytest.mark.parametrize("style", [3, 4])
+    def test_accepts_new_styles(self, style: int) -> None:
+        """官方新增的白底红字（3）与蓝底白字（4）应被接受。"""
+        button = build_button("A", style=style)
+        assert button["render_data"]["style"] == style
+
+    def test_group_id_only_for_callback(self) -> None:
+        """group_id 仅回调按钮可带，写入 Button 顶层。"""
+        button = build_button("A", action_type=ACTION_TYPE_CALLBACK, data="ns:act:1", group_id="g1")
+        assert button["group_id"] == "g1"
+        assert "group_id" not in build_button("A")
+        with pytest.raises(ValueError, match="group_id"):
+            build_button("A", group_id="g1")
+        with pytest.raises(ValueError, match="group_id"):
+            build_button("A", action_type=ACTION_TYPE_LINK, data="https://x", group_id="g1")
+
+    def test_modal_full_shape(self) -> None:
+        """合法 modal 写入 action.modal。"""
+        button = build_button("A", modal_content="确定要执行吗", modal_confirm_text="执行", modal_cancel_text="取消")
+        assert button["action"]["modal"] == {
+            "content": "确定要执行吗",
+            "confirm_text": "执行",
+            "cancel_text": "取消",
+        }
+
+    def test_modal_defaults_omitted(self) -> None:
+        """确认/取消文字留空时不写入结构，由 QQ 使用默认文案。"""
+        button = build_button("A", modal_content="确认操作")
+        assert button["action"]["modal"] == {"content": "确认操作"}
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"modal_content": "x" * 41},
+            {"modal_content": "访问 https://example.com"},
+            {"modal_content": "访问 http://example.com"},
+            {"modal_content": "", "modal_confirm_text": "好"},
+            {"modal_content": "ok", "modal_confirm_text": "太长了不行"},
+            {"modal_content": "ok", "modal_cancel_text": "太长了不行"},
+        ],
+    )
+    def test_rejects_invalid_modal(self, kwargs: dict) -> None:
+        """modal 超长、含 URL 或缺 content 时拒绝。"""
+        with pytest.raises(ValueError):
+            build_button("A", **kwargs)
+
     def test_specify_user_permission_requires_ids(self) -> None:
         """permission_type=0 必须给用户白名单。"""
         with pytest.raises(ValueError, match="specify_user_ids"):
