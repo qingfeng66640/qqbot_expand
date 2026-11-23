@@ -2,17 +2,57 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
+
+import httpx
 
 from src.app.plugin_system.base import BaseService
 
-from ..src.bridge import api_request, encode_path_segment, failure
+from ..src.bridge import api_request, encode_path_segment, failure, success
 from ..src.constants import MEDIA_FILE_TYPES, TARGET_TYPE_GROUP, TARGET_TYPE_USER
+from ..src.cos_transport import private_cos_diagnostics, validate_presigned_url
 
 __all__ = ["QQBotChunkedMediaService"]
 
 _MAX_FILE_SIZE = 200 * 1024 * 1024
 _MD5_10M_SIZE = 10_002_432
+
+
+def _plan_parts(parts: list[Any], file_size: int) -> list[tuple[int, str, int, int]]:
+    """在上传前验证完整分片计划；末片可短于分片容量。"""
+    indices = [part.get("index") if isinstance(part, dict) else None for part in parts]
+    if indices:
+        start = indices[0]
+        if (type(start) is not int or start not in (0, 1)
+                or any(type(index) is not int or index != expected
+                       for expected, index in enumerate(indices, start=start))):
+            raise ValueError("预上传响应的分片索引必须是从 0 或 1 连续递增的整数")
+
+    plan: list[tuple[int, str, int, int]] = []
+    urls: set[str] = set()
+    offset = 0
+    for part in parts:
+        size = part.get("block_size")
+        if isinstance(size, str) and re.fullmatch(r"[0-9]{1,9}", size):
+            size = int(size)
+        if type(size) is not int or not 0 < size <= _MAX_FILE_SIZE:
+            raise ValueError("预上传响应包含无效分片")
+        try:
+            url = validate_presigned_url(part.get("presigned_url"))
+            if str(httpx.URL(url)) != url or url in urls:
+                raise ValueError
+        except (ValueError, httpx.InvalidURL):
+            raise ValueError("预上传响应包含无效分片") from None
+        if offset >= file_size:
+            raise ValueError("预上传响应分片大小与文件不匹配")
+        end = min(offset + size, file_size)
+        plan.append((part["index"], url, offset, end))
+        urls.add(url)
+        offset = end
+    if offset != file_size:
+        raise ValueError("预上传响应分片大小与文件不匹配")
+    return plan
 
 
 class QQBotChunkedMediaService(BaseService):
@@ -61,46 +101,44 @@ class QQBotChunkedMediaService(BaseService):
         parts = data.get("parts")
         if not isinstance(upload_id, str) or not upload_id or not isinstance(parts, list):
             return failure("预上传响应缺少 upload_id 或 parts")
-        expected = list(range(len(parts)))
-        if [part.get("index") if isinstance(part, dict) else None for part in parts] != expected:
-            return failure("预上传响应的分片索引必须从 0 连续递增")
-        offset = 0
-        client = getattr(self.plugin, "http_client", None)
+        try:
+            plan = _plan_parts(parts, len(content))
+        except ValueError as exc:
+            return failure(str(exc))
+        client = getattr(self.plugin, "chunked_client", None)
         if client is None:
             return failure("HTTP 客户端未初始化")
-        for part in parts:
-            if not isinstance(part, dict):
-                return failure("预上传响应包含无效分片")
+        for index, url, start, end in plan:
+            chunk = content[start:end]
             try:
-                size = int(part.get("block_size", 0))
-            except (TypeError, ValueError):
-                return failure("预上传响应包含无效分片")
-            url = part.get("presigned_url")
-            if size <= 0 or not isinstance(url, str) or not url.startswith("https://"):
-                return failure("预上传响应包含无效分片")
-            chunk = content[offset : offset + size]
-            if not chunk:
-                return failure("预上传响应分片大小与文件不匹配")
-            try:
-                response = await client.put(url, content=chunk)
+                # 专用 COS 连接池不共享 QQ 鉴权，不在日志暴露签名 URL。
+                with private_cos_diagnostics():
+                    request = httpx.Request("PUT", url, content=chunk)
+                    response = await client.send(request, auth=None, follow_redirects=False, stream=True)
+                    await response.aclose()
             except Exception:
                 return failure("上传分片失败")
-            if response.status_code >= 400:
+            if not 200 <= response.status_code < 300:
                 return failure(f"上传分片返回 HTTP {response.status_code}")
             finished = await api_request(
                 self.plugin,
                 "POST",
                 f"/v2/{resource}/{encoded_target}/upload_part_finish",
-                {"upload_id": upload_id, "part_index": part["index"], "block_size": str(len(chunk)), "md5": hashlib.md5(chunk).hexdigest()},
+                {"upload_id": upload_id, "part_index": index, "block_size": str(len(chunk)), "md5": hashlib.md5(chunk).hexdigest()},
             )
             if not finished["success"]:
                 return finished
-            offset += len(chunk)
-        if offset != len(content):
-            return failure("预上传响应分片大小与文件不匹配")
-        return await api_request(
+        merged = await api_request(
             self.plugin,
             "POST",
             f"/v2/{resource}/{encoded_target}/files",
             {"file_type": file_type, "file_name": file_name.strip(), "upload_id": upload_id, "srv_send_msg": False},
         )
+        if not merged["success"]:
+            return merged
+        receipt = merged["data"]
+        file_info = receipt.get("file_info")
+        if not isinstance(file_info, str) or not file_info.strip():
+            return failure("QQ API 合并响应缺少 file_info")
+        # QQ 可额外返回 raw_url（短期 COS 签名下载地址），不把它交给调用方。
+        return success({key: receipt[key] for key in ("file_info", "file_uuid", "ttl") if key in receipt})

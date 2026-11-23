@@ -4,6 +4,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
+
 from ..handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from ..services.chunked_media_service import QQBotChunkedMediaService
 from ..services.utility_service import QQBotUtilityService
@@ -46,22 +48,23 @@ class TestChunkedMediaService:
 
     async def test_uploads_zero_based_parts_then_merges(self, patch_send_handler) -> None:
         client = FakeHttpClient([FakeResponse(200, {})])
-        client.put = AsyncMock(return_value=FakeResponse(200, {}))
-        plugin = make_plugin(http_client=client)
+        client.send = AsyncMock(return_value=httpx.Response(200))
+        plugin = make_plugin(chunked_client=client)
+        url = "https://fixture-1234567890.cos.ap-guangzhou.myqcloud.com/0"
         patch_send_handler.post_results = [
-            {"upload_id": "u1", "parts": [{"index": 0, "block_size": "3", "presigned_url": "https://cos.test/0"}]},
+            {"upload_id": "u1", "parts": [{"index": 0, "block_size": "3", "presigned_url": url}]},
             {},
             {"file_info": "f1"},
         ]
         result = await QQBotChunkedMediaService(plugin).upload_bytes("group", "g1", 4, "a.txt", b"abc")
         assert result["success"] is True
-        assert client.put.await_args.args[0] == "https://cos.test/0"
+        assert str(client.send.await_args.args[0].url) == url
         assert patch_send_handler.posts[1][0].endswith("/upload_part_finish")
         assert patch_send_handler.posts[2][2]["upload_id"] == "u1"
 
     async def test_rejects_non_contiguous_part_indexes(self, patch_send_handler) -> None:
         plugin = make_plugin(http_client=FakeHttpClient())
-        patch_send_handler.post_result = {"upload_id": "u1", "parts": [{"index": 1}]}
+        patch_send_handler.post_result = {"upload_id": "u1", "parts": [{"index": 1}, {"index": 3}]}
         result = await QQBotChunkedMediaService(plugin).upload_bytes("group", "g1", 4, "a.txt", b"abc")
         assert result["success"] is False
         assert "索引" in result["error"]

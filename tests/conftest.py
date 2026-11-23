@@ -137,6 +137,7 @@ class FakeSendHandler:
 def make_plugin(
     *,
     http_client: Any = None,
+    chunked_client: Any = None,
     allow_raw_request: bool = True,
     raw_allowed_methods: list[str] | None = None,
     debug_log_payload: bool = False,
@@ -167,7 +168,8 @@ def make_plugin(
     """构造一个满足 Service 依赖的插件替身。
 
     Args:
-        http_client: 注入的 HTTP 客户端。
+        http_client: 注入的 QQ API HTTP 客户端。
+        chunked_client: 注入的独立分片 COS 客户端。
         allow_raw_request: raw 通道总开关。
         raw_allowed_methods: raw 通道方法白名单。
         debug_log_payload: 是否打印请求体。
@@ -221,6 +223,7 @@ def make_plugin(
             ),
         ),
         http_client=http_client,
+        chunked_client=chunked_client,
     )
     from ..src.interaction import InteractionRuntime
 

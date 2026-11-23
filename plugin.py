@@ -23,6 +23,7 @@ from .config import QQBotExpandConfig
 from .handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
+from .src.cos_transport import create_cos_client, private_cos_diagnostics
 from .src.interaction import InteractionRuntime
 from .src.join_requests import JoinRequestRuntime
 from .src.managed_panels import ManagedPanelRuntime
@@ -85,6 +86,7 @@ class QQBotExpandPlugin(BasePlugin):
         """
         super().__init__(config)
         self.http_client: httpx.AsyncClient | None = None
+        self.chunked_client: httpx.AsyncClient | None = None
         self.interaction_runtime = InteractionRuntime(self)
         self.join_request_runtime = JoinRequestRuntime(self)
         self.managed_panel_runtime = ManagedPanelRuntime(self)
@@ -147,6 +149,7 @@ class QQBotExpandPlugin(BasePlugin):
         await self.join_request_runtime.close()
         await self.managed_panel_runtime.reset()
         http_cfg = getattr(self.config, "http", None)
+        await self._close_chunked_client()
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
                 float(getattr(http_cfg, "request_timeout", 30.0)),
@@ -162,6 +165,14 @@ class QQBotExpandPlugin(BasePlugin):
             http2=self._http2_enabled(http_cfg),
             trust_env=False,
         )
+        try:
+            self.chunked_client = create_cos_client(
+                request_timeout=float(getattr(http_cfg, "request_timeout", 30.0)),
+                connect_timeout=float(getattr(http_cfg, "connect_timeout", 10.0)),
+            )
+        except BaseException:
+            await self.on_plugin_unloaded()
+            raise
         if self._interaction_enabled():
             logger.info(
                 "qqbot_expand 互动回调已启用；请确保 qqbot_adapter 使用 intents=100663296"
@@ -174,6 +185,17 @@ class QQBotExpandPlugin(BasePlugin):
         logger.info(
             f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
         )
+
+    async def _close_chunked_client(self) -> None:
+        """关闭分片专用池，不让 COS 异常详情进入卸载日志。"""
+        client = self.chunked_client
+        self.chunked_client = None
+        if client is not None:
+            try:
+                with private_cos_diagnostics():
+                    await client.aclose()
+            except Exception:
+                logger.warning("关闭分片上传资源失败")
 
     @staticmethod
     def _http2_enabled(http_cfg: object) -> bool:
@@ -199,7 +221,8 @@ class QQBotExpandPlugin(BasePlugin):
         return True
 
     async def on_plugin_unloaded(self) -> None:
-        """插件卸载时先清理互动任务，再关闭共享 httpx 客户端。"""
+        """插件卸载时关闭 COS、互动任务和 QQ API 客户端。"""
+        await self._close_chunked_client()
         try:
             await self.managed_panel_runtime.close()
         except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出

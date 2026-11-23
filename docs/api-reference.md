@@ -292,7 +292,7 @@ async def send_media_from_url(
 依次执行 `/files` 上传和 `/messages` 发送。上传失败时不会发送；上传成功但发送失败时，
 返回值仍保留 `media.file_info`，可在 TTL 内直接调用 `send_media()` 重试，避免重复上传。
 
-本地分片上传由受信 Service `qqbot_chunked_media.upload_bytes()` 提供：只接受内存 `bytes`，限制 200 MB，按官方 0-based `parts[].index` 上传，校验 HTTPS 预签名 URL 后回传 `file_info`。它不接受 LLM 本地路径，也不注册为 Tool。
+本地分片上传由受信 Service `qqbot_chunked_media.upload_bytes()` 提供：只接受内存 `bytes`，限制 200 MB。QQ 文档示例从 0 开始，历史实测首片为 1；Service 只接受从 0 或 1 开始的连续索引，并使用原始索引确认分片。预签名 PUT 使用独立 COS 客户端，限制 HTTPS/443 和允许的 COS 域名，连接绑定到校验后的公网 IP，保留原主机 TLS 校验且不跟随重定向。合并返回 `file_info` 及可用的 `file_uuid`、`ttl`，不返回签名 URL；此 Service 不注册为 Tool。
 
 ---
 
