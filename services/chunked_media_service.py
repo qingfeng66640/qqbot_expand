@@ -40,7 +40,15 @@ def _plan_parts(parts: list[Any], file_size: int) -> list[tuple[int, str, int, i
             raise ValueError("预上传响应包含无效分片")
         try:
             url = validate_presigned_url(part.get("presigned_url"))
-            if str(httpx.URL(url)) != url or url in urls:
+            normalized_url = str(httpx.URL(url))
+            scheme_end = url.find("://") + 3
+            authority_end = url.find("/", scheme_end)
+            equivalent_url = url
+            if authority_end >= scheme_end and url[authority_end - 4:authority_end] == ":443":
+                # Only the explicitly allowed default port may be removed; keep the
+                # signed path and query byte-for-byte as returned by QQ.
+                equivalent_url = url[:authority_end - 4] + url[authority_end:]
+            if normalized_url != equivalent_url or equivalent_url in urls:
                 raise ValueError
         except (ValueError, httpx.InvalidURL):
             raise ValueError("预上传响应包含无效分片") from None
@@ -48,7 +56,7 @@ def _plan_parts(parts: list[Any], file_size: int) -> list[tuple[int, str, int, i
             raise ValueError("预上传响应分片大小与文件不匹配")
         end = min(offset + size, file_size)
         plan.append((part["index"], url, offset, end))
-        urls.add(url)
+        urls.add(equivalent_url)
         offset = end
     if offset != file_size:
         raise ValueError("预上传响应分片大小与文件不匹配")

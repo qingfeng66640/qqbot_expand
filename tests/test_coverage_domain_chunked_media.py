@@ -271,13 +271,15 @@ async def test_cos_redirect_never_confirms_and_request_has_no_client_credentials
 
 @pytest.mark.parametrize("host", [urlsplit(_COS_ORIGIN).hostname, ACCEL_HOST])
 @pytest.mark.parametrize("public_dns", [True, False])
+@pytest.mark.parametrize("explicit_default_port", [False, True])
 async def test_production_chunked_put_uses_private_pinned_cos_transport(
-    host: str, public_dns: bool,
+    host: str, public_dns: bool, explicit_default_port: bool,
     monkeypatch: pytest.MonkeyPatch,
     patch_send_handler: FakeSendHandler, caplog: pytest.LogCaptureFixture,
 ) -> None:
     """只替换 DNS/TCP 和普通 HTTP 出口，运行真实插件、Service 和 COS 传输。"""
-    signed_url = f"https://{host}/first%2Fpart?partNumber=1&signature=offline-signed%2Bcanary&partNumber=2"
+    port = ":443" if explicit_default_port else ""
+    signed_url = f"https://{host}{port}/first%2Fpart?partNumber=1&signature=offline-signed%2Bcanary&partNumber=2"
     patch_send_handler.post_results = [_prepare([_part(1, "8", signed_url)]), {}, {"file_info": "opaque"}]
     addresses = [address_info(PUBLIC_IP)]
     if not public_dns:
