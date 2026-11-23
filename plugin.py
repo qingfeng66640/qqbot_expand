@@ -23,12 +23,13 @@ from .config import QQBotExpandConfig
 from .handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
+from .src.http_diagnostics import SharedHTTPClient
 from .src.interaction import InteractionRuntime
 from .src.join_requests import JoinRequestRuntime
 from .src.managed_panels import ManagedPanelRuntime
-from .src.cos_transport import create_cos_client, private_cos_diagnostics
-from .src.material_upload import MaterialUploadClient
+from .src.material_upload import MaterialUploadClient, create_cos_client, private_cos_diagnostics
 from .src.sent_messages import SentMessageRegistry
+from .src.user_info import UserInfoRateLimiter
 from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
 from .services.group_info_service import QQBotGroupInfoService
@@ -39,6 +40,7 @@ from .services.menu_panel_service import QQBotMenuPanelService
 from .services.message_service import QQBotMessageService
 from .services.raw_service import QQBotRawService
 from .services.utility_service import QQBotUtilityService
+from .services.user_info_service import QQBotUserInfoService
 from .tools import ALL_TOOLS
 from .tools.group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool
 from .tools.group_members import (
@@ -73,6 +75,7 @@ class QQBotExpandPlugin(BasePlugin):
     Attributes:
         http_client: 全插件共享的 QQ API 异步客户端；未加载时为 None。
         chunked_client: 分片 PUT 使用的独立 COS 客户端；未加载时为 None。
+        user_info_rate_limiter: 用户查询的插件实例级共享额度，不存储个人信息。
     """
 
     plugin_name = "qqbot_expand"
@@ -94,6 +97,7 @@ class QQBotExpandPlugin(BasePlugin):
         self.join_request_runtime = JoinRequestRuntime(self)
         self.managed_panel_runtime = ManagedPanelRuntime(self)
         self.sent_messages = SentMessageRegistry()
+        self.user_info_rate_limiter = UserInfoRateLimiter()
 
     def get_components(self) -> list[type]:
         """返回插件注册的全部组件。
@@ -117,6 +121,7 @@ class QQBotExpandPlugin(BasePlugin):
             QQBotMenuPanelService,
             QQBotRawService,
             QQBotUtilityService,
+            QQBotUserInfoService,
             QQBotInteractionEventHandler,
             QQBotGroupJoinRequestEventHandler,
         ]
@@ -157,7 +162,10 @@ class QQBotExpandPlugin(BasePlugin):
             await self.material_upload.aclose()
             self.material_upload = None
         await self._close_chunked_client()
-        self.http_client = httpx.AsyncClient(
+        if self.http_client is not None:
+            await self.http_client.aclose()
+            self.http_client = None
+        self.http_client = SharedHTTPClient(
             timeout=httpx.Timeout(
                 float(getattr(http_cfg, "request_timeout", 30.0)),
                 connect=float(getattr(http_cfg, "connect_timeout", 10.0)),
@@ -194,6 +202,7 @@ class QQBotExpandPlugin(BasePlugin):
                 f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
             )
         except BaseException:
+            # 加载取消/后续资源构造失败不能遗留新客户端的 HPACK 诊断租约。
             await self.on_plugin_unloaded()
             raise
 

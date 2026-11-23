@@ -11,6 +11,7 @@ from .menu_panel_service import QQBotMenuPanelService
 from .message_service import QQBotMessageService
 from .raw_service import QQBotRawService
 from .utility_service import QQBotUtilityService
+from .user_info_service import QQBotUserInfoService
 
 __all__ = [
     "ALL_SERVICES",
@@ -24,6 +25,7 @@ __all__ = [
     "QQBotMessageService",
     "QQBotRawService",
     "QQBotUtilityService",
+    "QQBotUserInfoService",
 ]
 
 ALL_SERVICES: list[type] = [
@@ -37,4 +39,5 @@ ALL_SERVICES: list[type] = [
     QQBotMenuPanelService,
     QQBotRawService,
     QQBotUtilityService,
+    QQBotUserInfoService,
 ]

@@ -11,6 +11,46 @@
 
 ---
 
+## Service: `qqbot_expand:service:qqbot_user_info`
+
+```python
+service = service_api.get_service("qqbot_expand:service:qqbot_user_info")
+result = await service.get_user_info(user_openid)
+```
+
+专用只读 `GET /v2/users/{user_openid}/info`，依据 2026-11-17 重新抓取、语义更新至 2026-11-16 的本地官方归档实现，不代表本轮已联网验证官网最新状态，也不是 raw API 的别名。参数必须是当前 Bot 的非空用户 OpenID；拒绝路径分隔符、控制字符、空白及模糊编码，不接受 `member_openid` 或 union 标识作为替代路由，也不凭字符串推断跨场景身份。
+
+返回兼容 `success/data/error`，额外提供稳定 `error_type`（成功为 `None`）：
+
+```python
+{
+    "success": True,
+    "data": {
+        "username": "示例昵称😊", "avatar": "https://avatar.example/image",
+        "allow_proactive_msg": False,
+        # "union_openid": "..."  # 仅平台返回时存在
+    },
+    "error": None,
+    "error_type": None,
+}
+```
+
+`username`、`avatar`、`allow_proactive_msg` 必须存在且类型正确；可选 `union_openid` 必须是字符串。任何查询失败、字段缺失或畸形响应都返回 `success=False, data=None`，绝不以 `allow_proactive_msg=False` 伪装未知结果。该偏好为 `True` 也不授予自动发信许可。头像只作元数据，不下载；union 只作关联元数据，不路由、不自动合并用户。服务不长期缓存个人信息。
+
+| `error_type` | 含义 |
+| --- | --- |
+| `invalid_user_openid` | 参数校验失败，未请求 |
+| `adapter_not_ready` / `client_not_ready` | 公共 Adapter 或共享客户端不可用 |
+| `no_friend_relationship` | 官方 `40184001`，无好友关系 |
+| `authentication_failed` | HTTP 401、认证业务码或无效认证数据 |
+| `rate_limited` / `server_error` | HTTP 429 / 5xx |
+| `timeout` / `network_error` / `request_failed` | 超时、网络故障或其他安全泛化失败 |
+| `http_error` / `api_error` / `invalid_response` | 其他 HTTP、业务错误或畸形响应 |
+
+限流器由插件实例持有，在同一事件循环内为所有新建 Service 共享滚动一秒 10 次额度；Service 重建及同实例客户端重载均不重置额度。不同插件实例隔离。每个查询最多一次物理 HTTP 尝试，不自动重试、不跟随重定向；取消等待不占新额度，调用方取消直接传播。复用 Adapter 的公开认证和 Expand 共享客户端，不另建 TokenManager/Gateway。示例见 `examples/user_info.py`。
+
+依赖日志保护由插件创建的 `SharedHTTPClient` 持有：用户查询请求期按当前任务脱敏，HPACK 动态表敏感值淘汰由客户端、在途请求与尚未关闭的流式响应共同持有租约。客户端关闭重试返回不代表所有已分配请求结束，故不能提前移除它们的保护。租约不保存 openid/token，不改日志级别、请求值或连接池；正常请求和响应释放后回到原日志状态。手动注入裸 `httpx.AsyncClient` 绕过该生产生命周期，不承诺延迟淘汰保护；底层连接关闭失败也不能仅凭 `is_closed` 声称全部物理资源已释放。
+
 ## Service: `qqbot_expand:service:qqbot_message`
 
 发送 `qqbot_adapter` 未覆盖的消息类型。

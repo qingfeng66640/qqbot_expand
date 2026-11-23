@@ -11,6 +11,7 @@ from ..config import QQBotExpandConfig
 from ..handlers import QQBotGroupJoinRequestEventHandler, QQBotInteractionEventHandler
 from ..plugin import QQBotExpandPlugin
 from ..services import ALL_SERVICES
+from ..services.user_info_service import QQBotUserInfoService
 from ..src.bridge import ADAPTER_SIGNATURE, resolve_send_handler
 from ..tools import (
     ALL_GROUP_ADMIN_TOOLS,
@@ -56,6 +57,22 @@ class TestManifestConsistency:
             | {("event_handler", QQBotGroupJoinRequestEventHandler.name)}
         )
         assert declared == actual
+
+    def test_user_info_service_registered_as_read_only(self) -> None:
+        """用户查询必须真实注册为 Service，而不是隐含依赖 raw 或 Tool 开关。"""
+        config = QQBotExpandConfig()
+        config.features.enable_tools = False
+        plugin = QQBotExpandPlugin(config)
+        assert QQBotUserInfoService in plugin.get_components()
+        assert QQBotUserInfoService in ALL_SERVICES
+        declared = [
+            item for item in load_manifest()["include"]
+            if item["component_name"] == "qqbot_user_info"
+        ]
+        assert declared == [{
+            "component_type": "service", "component_name": "qqbot_user_info",
+            "dependencies": [], "enabled": True,
+        }]
 
     def test_depends_on_adapter(self) -> None:
         """本插件是 qqbot_adapter 的扩展，依赖必须声明。"""
@@ -150,6 +167,18 @@ class TestPluginLifecycle:
 
         config.features.menu_panel_allowed_operator_openids = ["operator"]
         assert set(ALL_MENU_PANEL_TOOLS).issubset(plugin.get_components())
+
+    def test_user_info_rate_limit_belongs_to_plugin_lifecycle(self) -> None:
+        """插件构造时拥有独立限流器，新建 Service 不改变其共享状态。"""
+        plugin = QQBotExpandPlugin(QQBotExpandConfig())
+        limiter = plugin.user_info_rate_limiter
+        assert limiter is not None
+        first = QQBotUserInfoService(plugin=plugin)
+        second = QQBotUserInfoService(plugin=plugin)
+        assert first is not second and first.plugin is second.plugin
+        assert plugin.user_info_rate_limiter is limiter
+        other = QQBotExpandPlugin(QQBotExpandConfig())
+        assert other.user_info_rate_limiter is not limiter
 
     def test_http_client_absent_before_load(self) -> None:
         """加载前不应持有客户端。"""

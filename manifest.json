@@ -29,6 +29,12 @@
     "include": [
         {
             "component_type": "service",
+            "component_name": "qqbot_user_info",
+            "dependencies": [],
+            "enabled": true
+        },
+        {
+            "component_type": "service",
             "component_name": "qqbot_material",
             "dependencies": [],
             "enabled": true
