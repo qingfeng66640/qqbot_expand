@@ -15,14 +15,15 @@ from src.kernel.event import EventDecision
 from ..handlers import interaction_event_handler as handler_module
 from ..handlers.interaction_event_handler import QQBotInteractionEventHandler
 from ..services.interaction_service import QQBotInteractionService
+from ..services.message_service import QQBotMessageService
 from ..src.interaction import CallbackResult, InteractionContext, InteractionRuntime
-from .conftest import FakeHttpClient, FakeResponse, make_plugin
+from .conftest import FakeHttpClient, FakeResponse, FakeSendHandler, make_plugin
 
 
 def make_context(**overrides: object) -> InteractionContext:
     """构造标准互动上下文。"""
     values = {
-        "event_id": "i1",
+        "event_id": "INTERACTION_CREATE:outer",
         "interaction_id": "i1",
         "interaction_type": 11,
         "scene": "c2c",
@@ -318,8 +319,51 @@ class TestWorker:
 
         args = message_service.send_text.await_args
         assert args.args == ("user", "u1", "hello")
-        assert args.kwargs == {"event_id": "i1"}
+        assert args.kwargs == {"event_id": "INTERACTION_CREATE:outer"}
         assert "msg_id" not in args.kwargs
+
+    async def test_group_callback_routes_ack_and_reply_to_distinct_http_fields(
+        self, monkeypatch: pytest.MonkeyPatch, patch_send_handler: object, send_handler: FakeSendHandler,
+    ) -> None:
+        """The real services build the two different platform requests offline."""
+        client = FakeHttpClient([FakeResponse(200, {})])
+        plugin = make_plugin(http_client=client)
+        plugin.interaction_runtime.register(
+            "demo", "run", lambda _ctx, _payload: CallbackResult(True, 0, "hello")
+        )
+        message_service = QQBotMessageService(plugin=plugin)
+        monkeypatch.setattr("src.app.plugin_system.api.service_api.get_service", lambda _: message_service)
+
+        await plugin.interaction_runtime.process(make_context(target_type="group", target_id="g1"))
+
+        assert [(call["method"], call["url"], call["json"]) for call in client.calls] == [
+            ("PUT", "https://api.bot.qq.com/interactions/i1", {"code": 0}),
+        ]
+        assert len(send_handler.posts) == 1
+        url, _, body = send_handler.posts[0]
+        assert url == "https://api.bot.qq.com/v2/groups/g1/messages"
+        assert body == {"msg_type": 0, "content": "hello", "event_id": "INTERACTION_CREATE:outer"}
+
+    @pytest.mark.parametrize("event_id", ["", " \t", None, 42])
+    async def test_missing_outer_id_preserves_ack_without_sending(
+        self, monkeypatch: pytest.MonkeyPatch, patch_send_handler: object, event_id: object,
+    ) -> None:
+        """Missing or invalid reply IDs must not turn a callback into a proactive send."""
+        client = FakeHttpClient([FakeResponse(200, {})])
+        plugin = make_plugin(http_client=client)
+        plugin.interaction_runtime.register(
+            "demo", "run", lambda _ctx, _payload: CallbackResult(True, 0, "hello")
+        )
+        get_service = AsyncMock()
+        monkeypatch.setattr("src.app.plugin_system.api.service_api.get_service", get_service)
+
+        await plugin.interaction_runtime.process(make_context(event_id=event_id))
+
+        get_service.assert_not_called()
+        assert len(client.calls) == 1
+        assert client.calls[0]["method"] == "PUT"
+        assert client.calls[0]["url"].endswith("/interactions/i1")
+        assert client.calls[0]["json"] == {"code": 0}
 
     async def test_message_skips_unknown_target_and_missing_service(
         self, monkeypatch

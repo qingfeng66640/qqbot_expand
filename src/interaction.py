@@ -255,7 +255,11 @@ class InteractionRuntime:
             self._callbacks.clear()
 
     async def _send_message(self, context: InteractionContext, message: str) -> None:
-        """向可回复目标发送仅关联 event_id 的文本。"""
+        """只用 Gateway 外层事件 ID 被动回复，不降级为主动消息。"""
+        event_id = context.event_id
+        if not isinstance(event_id, str) or not event_id.strip():
+            logger.warning("QQ 互动事件缺少外层 event_id，跳过被动回复")
+            return
         if context.target_type not in {"user", "group"} or not context.target_id:
             logger.warning(
                 f"QQ 互动结果无法回复到当前目标: id={context.interaction_id} "
@@ -270,7 +274,7 @@ class InteractionRuntime:
             context.target_type,
             context.target_id,
             message,
-            event_id=context.event_id,
+            event_id=event_id,
         )
 
     def _parse_button_data(self, button_data: Any) -> tuple[str, str, str] | None:

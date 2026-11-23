@@ -220,7 +220,7 @@ item 类型仅 `command/link`，名称最多 14 个展示字符（约 7 个汉�
 - 成功返回空
 - **每个 interaction_id 只能应答一次**，超时后失效；不应答客户端会一直 loading
 - Expand 在请求前以 TTL/容量有界表去重；网络 timeout 也不自动重试
-- 业务消息回复使用 `event_id=interaction_id`，不得使用 `msg_id` 或同时传两者
+- ACK 使用互动事件的 `d.id`（不带 `INTERACTION_CREATE:` 前缀），业务被动回复的 `event_id` 则使用 Gateway 最外层的 `id`。缺少外层 ID 时照常处理 ACK，但不回复、不降级主动发送；不使用 `msg_id` 代替。
 - 按钮 `action.type=1` 与事件顶层 `type=11/12` 是两套不同枚举
 - 该接口使用统一域名 `api.bot.qq.com`；若平台限制沙箱能力，应按接口返回的能力错误处理，不切换到旧域名
 
