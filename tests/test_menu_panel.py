@@ -1,9 +1,11 @@
 """QQ 菜单与指令面板 Service、策略与 Tool 测试。"""
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from ..services.menu_panel_service import QQBotMenuPanelService
@@ -23,7 +25,7 @@ from ..tools.menu_panel import (
     QQUpdatePanelTargetsTool,
     QQUpdatePanelTool,
 )
-from .conftest import FakeHttpClient, FakeResponse, make_plugin
+from .conftest import FakeHttpClient, FakeResponse, FakeSendHandler, make_plugin
 
 
 VALID_PANEL = {
@@ -197,6 +199,47 @@ class TestMenuPanelService:
         assert (await service.update_menu(VALID_MENU))["success"] is True
         assert [call["method"] for call in client.calls] == ["GET", "PUT"]
         assert client.calls[1]["json"]["menu"]["items"][1]["type"] == "menu"
+
+    async def test_c2c_menu_wire_and_readback_are_distinct(
+        self, patch_send_handler: FakeSendHandler,
+    ) -> None:
+        """请求不设置客户端点击行为，读回保留平台添加字段及两种空形状。"""
+        item = {"name": "帮助", "type": "send_message", "send_message": "/help"}
+        fixture_readback = {"items": [{**item, "unrecognized_field": "fixture"}]}
+        readbacks = iter([
+            {"menu": {}, "version": 1},
+            {"menu": fixture_readback, "version": 2},
+            {"menu": {"items": []}, "version": 3},
+        ])
+        requests: list[tuple[str, str]] = []
+        writes: list[object] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            """Return canned GET shapes; the empty list is not a simulated restoration."""
+            requests.append((request.method, request.url.path))
+            if request.method == "PUT":
+                writes.append(json.loads(request.content))
+                return httpx.Response(200, json={"version": 2})
+            return httpx.Response(200, json=next(readbacks))
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            service = QQBotMenuPanelService(_enabled_plugin(http_client=client))
+            unset = await service.get_menu()
+            update = await service.update_menu([{**item, "enter": True}])
+            installed = await service.get_menu()
+            empty_list = await service.get_menu()
+
+        assert unset == {"success": True, "data": {"menu": {}, "version": 1}, "error": None}
+        assert update == {"success": True, "data": {"version": 2}, "error": None}
+        assert installed == {
+            "success": True, "data": {"menu": fixture_readback, "version": 2}, "error": None,
+        }
+        assert empty_list == {
+            "success": True, "data": {"menu": {"items": []}, "version": 3}, "error": None,
+        }
+        assert requests == [(method, "/v2/menu") for method in ("GET", "PUT", "GET", "GET")]
+        assert writes == [{"menu": {"items": [item]}}]
+        assert not patch_send_handler.posts
 
     async def test_list_panels_query(self, patch_send_handler) -> None:
         """面板列表查询携带 scope、cursor 和 limit。"""
