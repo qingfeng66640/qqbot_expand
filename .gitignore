@@ -7,3 +7,9 @@ build/
 .ruff_cache/
 .mypy_cache/
 *.log
+
+# Validation artifacts (local review runs, coverage reports and sample binaries)
+.validation/
+.review-validation*/
+.coverage-results/
+*.sample.bin
