@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.app.plugin_system.api import storage_api
 from src.app.plugin_system.api.log_api import get_logger
@@ -72,17 +72,18 @@ class ManagedPanelRuntime:
                 coroutine.close()
                 raise
             self._tasks[task_info.task_id] = task_info
-            if task_info.task is not None:
-                task_info.task.add_done_callback(
-                    lambda _task, task_id=task_info.task_id: self._tasks.pop(
-                        task_id, None
-                    )
+            # TaskManager 在成功返回前已同步绑定真实 Task，此处没有中间 await。
+            cast("asyncio.Task[None]", task_info.task).add_done_callback(
+                lambda _task, task_id=task_info.task_id: self._tasks.pop(
+                    task_id, None
                 )
+            )
             return True
 
     async def _reconcile_with_adapter_retry(self) -> None:
         """在 Adapter 启动窗口内有限重试对账。"""
-        for attempt in range(_RECONCILE_MAX_ATTEMPTS):
+        attempt = 0
+        while True:
             try:
                 await self.reconcile_once()
                 return
@@ -94,6 +95,7 @@ class ManagedPanelRuntime:
                     )
                     return
                 await asyncio.sleep(_RECONCILE_BACKOFFS[attempt])
+                attempt += 1
 
     async def close(self) -> None:
         """停止对账并等待已调度任务退出。"""
