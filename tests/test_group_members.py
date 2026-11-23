@@ -3,13 +3,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from ..services.group_members_service import QQBotGroupMembersService
 from ..tools.group_members import (
     QQBatchRemoveGroupMembersTool,
     QQManageGroupBlacklistTool,
     QQQueryGroupMembersTool,
 )
-from .conftest import FakeHttpClient, FakeResponse, make_plugin
+from .conftest import FakeHttpClient, FakeResponse, FakeSendHandler, make_plugin
 
 
 def _group_message() -> SimpleNamespace:
@@ -152,6 +154,29 @@ class TestGroupMembersTools:
         success, data = await self._tool(plugin, QQQueryGroupMembersTool).execute(query="members")  # type: ignore[attr-defined]
         assert success is True
         assert data["members"][0]["member_openid"] == "m1"
+
+    @pytest.mark.parametrize(("query", "member_openid", "message"), [
+        ("typo", "", "query 只能是 members、member 或 blacklist"),
+        ("MEMBERS", "", "query 只能是 members、member 或 blacklist"),
+        ("member", None, "查询 member 时 member_openid 不能为空"),
+        ("member", 42, "查询 member 时 member_openid 不能为空"),
+    ])
+    async def test_invalid_query_args_do_not_reach_network(
+        self, patch_send_handler: FakeSendHandler, query: str,
+        member_openid: str | int | None, message: str,
+    ) -> None:
+        """即便会话已授权，未知查询也不应读取完整成员列表。"""
+        client = FakeHttpClient([FakeResponse(200, {"members": [{"member_openid": "private"}]})])
+        plugin = make_plugin(
+            http_client=client,
+            enable_group_members_tools=True,
+            group_members_allowed_group_openids=["g1"],
+        )
+        tool = QQQueryGroupMembersTool(plugin)
+        tool.trigger_message = _group_message()
+        assert await tool.execute(query=query, member_openid=member_openid) == (False, message)
+        assert not client.calls
+        assert not patch_send_handler.posts
 
     async def test_query_member_requires_openid(self, patch_send_handler) -> None:
         plugin = make_plugin(

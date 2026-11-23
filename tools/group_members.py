@@ -66,13 +66,15 @@ class QQQueryGroupMembersTool(_GroupMembersTool):
             return False, error
         service = QQBotGroupMembersService(self.plugin)
         if query == "member":
-            if not member_openid.strip():
+            if not isinstance(member_openid, str) or not member_openid.strip():
                 return False, "查询 member 时 member_openid 不能为空"
             result = await service.get_member(group_openid, member_openid)
         elif query == "blacklist":
             result = await service.list_blacklist(group_openid, cursor=cursor, limit=limit)
-        else:
+        elif query == "members":
             result = await service.list_members(group_openid, cursor=cursor)
+        else:
+            return False, "query 只能是 members、member 或 blacklist"
         return (True, result["data"]) if result["success"] else (False, result["error"])
 
 
