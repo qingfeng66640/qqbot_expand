@@ -97,9 +97,9 @@ class QQBotGroupAdminService(BaseService):
     async def list_join_approval_strategies(
         self, cursor: str = "", limit: int = 20
     ) -> dict[str, Any]:
-        """分页查询生效中的入群自动审批策略。"""
-        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
-            return failure("limit 必须在 1~100 之间")
+        """分页查询生效中的入群自动审批策略，每页最多 50 条。"""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+            return failure("limit 必须在 1~50 之间")
         return await self._request(
             "GET",
             "/v2/groups/join_approval_strategy",

@@ -145,7 +145,7 @@ prepare/complete 显式禁用重试，由一次性控制面路径复用 Adapter 
 
 | 方法 | HTTP | 说明 |
 |---|---|---|
-| `list_join_approval_strategies(cursor="", limit=20)` | GET | 分页查询当前生效策略列表，60 QPM，`limit` 为 1–100 |
+| `list_join_approval_strategies(cursor="", limit=20)` | GET | 分页查询当前生效策略列表，60 QPM，`limit` 为 1–50 |
 | `create_join_approval_strategy(...)` | POST | `group_openids` / `group_ids` 二选一，最多 100 个群 |
 | `update_join_approval_strategy(...)` | PATCH | 启停、失效时间、备注或关联群增删 |
 | `delete_join_approval_strategy(strategy_id)` | DELETE | 删除策略 |
