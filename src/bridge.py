@@ -32,6 +32,7 @@ from .constants import API_BASE_PRODUCTION
 from .errors import (
     ERROR_ADAPTER_NOT_READY,
     ERROR_GENERIC,
+    api_business_error,
     format_api_error_diagnostics,
     sanitize_error,
     sanitize_http_status,
@@ -295,10 +296,9 @@ async def _request_via_adapter(
 
     if not isinstance(response, dict):
         return success({})
-    # QQ 业务错误只记录白名单诊断字段，不透传正文。
-    if response.get("code") and response.get("message"):
+    if business_error := api_business_error(response):
         logger.warning(f"POST QQ API 业务失败: {format_api_error_diagnostics(response)}")
-        return failure(sanitize_error(str(response.get("err_code") or response.get("code"))))
+        return failure(business_error)
     return success(response)
 
 
@@ -355,7 +355,11 @@ async def _request_via_http(
         if not 200 <= response.status_code < 300:
             _log_http_failure(method, response)
             return failure(sanitize_http_status(response.status_code))
-        return success(_parse_json(response))
+        payload = _parse_json(response)
+        if business_error := api_business_error(payload):
+            logger.warning(f"{method} QQ API 业务失败: {format_api_error_diagnostics(payload)}")
+            return failure(business_error)
+        return success(payload)
 
     return failure(last_error)
 

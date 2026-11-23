@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 __all__ = [
+    "api_business_error",
     "format_api_error_diagnostics",
     "ERROR_ADAPTER_NOT_READY",
     "ERROR_BAD_REQUEST",
@@ -70,6 +71,26 @@ def sanitize_error(exc: BaseException | str) -> str:
         if any(keyword in text for keyword in keywords):
             return message
     return ERROR_GENERIC
+
+
+def api_business_error(payload: Any) -> str | None:
+    """Identify nonzero QQ business codes without requiring or exposing message."""
+    if not isinstance(payload, dict):
+        return None
+    for field in ("err_code", "code"):
+        value = payload.get(field)
+        if value is None or value == "":
+            continue
+        if type(value) is int:
+            code = str(value)
+        elif isinstance(value, str) and re.fullmatch(r"[0-9]{1,10}", value):
+            code = str(int(value))
+        else:
+            # A malformed explicit code is not proof of success; never stringify it.
+            return ERROR_GENERIC
+        if code != "0":
+            return sanitize_error(code)
+    return None
 
 
 def format_api_error_diagnostics(payload: Any) -> str:
