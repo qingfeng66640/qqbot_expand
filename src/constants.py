@@ -17,6 +17,7 @@ MSG_TYPE_MARKDOWN = 2
 MSG_TYPE_ARK = 3
 MSG_TYPE_EMBED = 4
 MSG_TYPE_MEDIA = 7
+MSG_TYPE_CARD = 8
 
 # msg_seq 取值上限（QQ 侧要求同一 msg_id 下的回复序号唯一）
 MSG_SEQ_MAX = 65536

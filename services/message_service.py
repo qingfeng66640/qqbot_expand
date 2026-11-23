@@ -1,7 +1,7 @@
 """QQ 消息发送 Service。
 
 补齐 ``qqbot_adapter`` 未覆盖的消息类型：keyboard（按钮）、ark（卡片）、
-embed、模板 Markdown、引用回复。
+embed、模板 Markdown、引用回复及图文 card。
 
 所有方法遵循统一签名风格::
 
@@ -35,10 +35,12 @@ from ..src.builders import (
     build_media,
     build_message_reference,
 )
+from ..src.card_builder import build_tuwen_card
 from ..src.constants import (
     MEDIA_FILE_TYPES,
     MSG_SEQ_MAX,
     MSG_TYPE_ARK,
+    MSG_TYPE_CARD,
     MSG_TYPE_EMBED,
     MSG_TYPE_MARKDOWN,
     MSG_TYPE_MEDIA,
@@ -231,7 +233,7 @@ class QQBotMessageService(BaseService):
     """
 
     service_name = "qqbot_message"
-    service_description = "发送 QQ 按钮 / ark / embed / 模板 Markdown / 引用回复 / 富媒体消息"
+    service_description = "发送 QQ 按钮 / ark / 图文 card / embed / 模板 Markdown / 引用回复 / 富媒体消息"
     version = "0.2.0"
 
     # ============ 内部工具 ============
@@ -493,6 +495,50 @@ class QQBotMessageService(BaseService):
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_ARK,
                 "ark": build_ark(template_id, kv),
+            }
+            self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
+            return payload
+
+        return await self._guard_and_send(target_type, target_id, msg_seq, builder)
+
+    async def send_tuwen_card(
+        self,
+        target_type: str,
+        target_id: str,
+        title: str,
+        description: str,
+        url: str,
+        pic_url: str,
+        *,
+        msg_id: str = "",
+        event_id: str = "",
+        msg_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """发送群聊或 C2C 图文卡片（``msg_type=8``），不复用旧 Ark 模板。
+
+        Args:
+            target_type: ``"user"``（C2C）或 ``"group"``（群聊）。
+            target_id: 目标 openid。
+            title: 标题，1~50 个 Unicode 码点。
+            description: 描述，1~200 个 Unicode 码点。
+            url: 跳转 HTTPS URL，最多 1024 字符。
+            pic_url: 图片 HTTPS URL，最多 1024 字符。
+            msg_id: 被动回复关联的消息 id，与 event_id 互斥。
+            event_id: 被动回复关联的事件 id。
+            msg_seq: 回复序号；带 msg_id 时缺省为 1。
+
+        Returns:
+            统一发送结果；成功时包含 message_id 与 ref_idx，失败时返回脱敏错误。
+        """
+
+        def builder() -> dict[str, Any]:
+            """校验被动引用并构造白名单图文卡片消息体。"""
+            error = _validate_passive_source(msg_id, event_id)
+            if error:
+                raise ValueError(error)
+            payload: dict[str, Any] = {
+                "msg_type": MSG_TYPE_CARD,
+                "card": build_tuwen_card(title, description, url, pic_url),
             }
             self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
             return payload

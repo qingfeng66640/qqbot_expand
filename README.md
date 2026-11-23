@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | 按钮菜单（keyboard） | 无 | `qqbot_message.send_keyboard()` |
 | ark 卡片（`msg_type=3`） | 无 | `qqbot_message.send_ark()` |
+| 图文卡片（`msg_type=8`） | 公共传输 | `qqbot_message.send_tuwen_card()`，与旧 Ark 模板分离 |
 | 模板 Markdown | 无 | `qqbot_message.send_markdown_template()` |
 | 引用回复（message_reference） | 无 | `qqbot_message.send_reply()` |
 | 文本内嵌交互标签 | 无 | `src/builders.py` 的 `at_user` / `cmd_enter` / `cmd_input` 等 |

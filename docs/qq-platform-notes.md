@@ -12,6 +12,7 @@
 | 3 | ark | 支持 | 支持 | 支持 | 支持 | `send_ark` |
 | 4 | embed | **不支持** | **不支持** | 支持 | 支持 | `send_embed`（保留，实际不可用） |
 | 7 | media | 支持 | 支持 | — | — | `upload_media_from_url` / `send_media` / `send_media_from_url` |
+| 8 | 图文 card | 支持 | 支持 | 未纳入本次对接 | 未纳入本次对接 | `send_tuwen_card`；不是 Ark 模板24 |
 
 `qqbot_expand` 只覆盖 `/v2/users/{openid}/messages` 与
 `/v2/groups/{group_openid}/messages` 两个接口，即单聊与群聊场景。频道相关接口
@@ -39,6 +40,11 @@
 返回：`{"id": "消息唯一ID", "timestamp": 发送时间}`。
 
 常见错误码：`22009` 消息发送超频、`304082`/`304083` 富媒体资源拉取失败。
+
+## 图文卡片
+
+[官方变更记录](https://bot.q.qq.com/wiki/develop/api-v2/changelog.html)在 2026-10-28 新增群聊/C2C 图文卡片：现有 `/messages` 使用 `msg_type=8`、`card.type="tuwen"`，不是新的发送 URL，也不是 `msg_type=3` 的 Ark。
+`card.content` 包含标题（1~50字符）、描述（1~200字符）、跳转和图片 HTTPS URL（各不超过1024字符）。
 
 ## 富媒体（msg_type=7）
 

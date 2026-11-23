@@ -77,6 +77,23 @@ result = await service.get_user_info(user_openid)
 
 Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。只在传入 `True` 时向 **`markdown.force_verify_image_resource`** 下发该字段，不写入请求顶层；此时 QQ 图片资源转存失败会让**整条消息发送失败**。默认关闭时保持 QQ 的旧行为：图片可能被静默丢弃而消息仍发送。
 
+### `send_tuwen_card`
+
+```python
+async def send_tuwen_card(
+    target_type: str, target_id: str, title: str, description: str,
+    url: str, pic_url: str, *, msg_id: str = "", event_id: str = "",
+    msg_seq: int | None = None,
+) -> dict[str, Any]
+```
+
+发送群聊/C2C 的 `msg_type=8` 图文卡片，`card.type="tuwen"`，不是旧 Ark 模板。
+标题 1~50 字符，描述 1~200 字符；跳转和图片 URL 均须为不含 userinfo、控制字符的合法 HTTPS URL，长度不超过 1024 字符。这里按普通字符串长度处理，不复用菜单中文双字符计数，也不会截短内容。
+
+复用现有 `user/group` 目标、`msg_id/event_id` 互斥、`msg_seq` 和近期消息登记。成功返回
+`message_id` 与 `ref_idx`，调用错误仍放在 `error`，不会自动降级成 Ark 或普通文本。
+该方法是受信 Service，没有默认注册对应 LLM Tool。
+
 ---
 
 ## Service: `qqbot_expand:service:qqbot_material`

@@ -611,6 +611,28 @@ await msg.send_ark("user", user_openid, ARK_TEMPLATE_THUMBNAIL, kv)
 
 ---
 
+## 2.1 新图文卡片（不是 Ark 模板）
+
+```python
+from src.app.plugin_system.api import service_api
+
+msg = service_api.get_service("qqbot_expand:service:qqbot_message")
+result = await msg.send_tuwen_card(
+    "group", group_openid,
+    title="更新通知",
+    description="查看本次更新内容",
+    url="https://example.com/detail",
+    pic_url="https://example.com/cover.png",
+    msg_id=trigger_msg_id,
+)
+if not result["success"]:
+    print(result["error"])  # 已脱敏，不包含原始平台错误正文
+```
+
+C2C 使用 `"user"` 和当前用户 OpenID。标题1~50字符、描述1~200字符，链接必须为 HTTPS 且不超过1024字符。
+新方法发送 `msg_type=8/card.type=tuwen`；旧 `qq_send_ark(style="card")` 仍是模板24，不会自动切换。
+只有受信 Service，没有默认新增的 LLM 工具。`message_id` 用于撤回，`ref_idx` 用于引用，不能互换。
+
 ## 3. 引用回复
 
 群里人多时，明确回应某条消息：
