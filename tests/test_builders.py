@@ -299,6 +299,28 @@ class TestBuildMarkdown:
         """无变量的模板可以不带 params。"""
         assert build_markdown(custom_template_id="t1") == {"custom_template_id": "t1"}
 
+    @pytest.mark.parametrize("template", [False, True])
+    @pytest.mark.parametrize("force_verify", [False, True])
+    def test_image_verification_flag(self, template: bool, force_verify: bool) -> None:
+        """图片强校验标志属于 Markdown，False 时不输出字段。"""
+        kwargs = {"custom_template_id": "t1"} if template else {"content": "# hi"}
+        expected: dict[str, object] = dict(kwargs)
+        if force_verify:
+            expected["force_verify_image_resource"] = True
+        assert build_markdown(
+            **kwargs, force_verify_image_resource=force_verify
+        ) == expected
+
+    @pytest.mark.parametrize("template", [False, True])
+    @pytest.mark.parametrize("value", [None, 0, 1, "true", "false", [], {}])
+    def test_rejects_non_boolean_image_verification(
+        self, template: bool, value: object
+    ) -> None:
+        """开关必须是真正的 bool，不隐式接受整数或字符串。"""
+        kwargs = {"custom_template_id": "t1"} if template else {"content": "# hi"}
+        with pytest.raises(ValueError, match="force_verify_image_resource"):
+            build_markdown(**kwargs, force_verify_image_resource=value)  # type: ignore[arg-type]
+
     def test_rejects_both_modes(self) -> None:
         """两种模式互斥。"""
         with pytest.raises(ValueError, match="互斥"):

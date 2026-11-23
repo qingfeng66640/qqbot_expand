@@ -303,6 +303,7 @@ def build_markdown(
     content: str = "",
     custom_template_id: str = "",
     params: list[dict[str, Any]] | None = None,
+    force_verify_image_resource: bool = False,
 ) -> dict[str, Any]:
     """构造 markdown 结构。
 
@@ -313,29 +314,35 @@ def build_markdown(
         content: 原生 markdown 文本。
         custom_template_id: 已在 QQ 后台报备的 markdown 模板 id。
         params: 模板参数，元素形如 ``{"key": "title", "values": ["..."]}``。
+        force_verify_image_resource: 是否强校验图片资源；False 时省略此字段。
 
     Returns:
         QQ API 要求的 markdown 结构。
 
     Raises:
-        ValueError: 两种模式同时提供或都未提供，或模板参数格式不对。
+        ValueError: 模式、模板参数或图片强校验开关不合法。
     """
+    if not isinstance(force_verify_image_resource, bool):
+        raise ValueError("force_verify_image_resource 必须是布尔值")
     if content and custom_template_id:
         raise ValueError("content 与 custom_template_id 互斥，只能提供其中一个")
     if not content and not custom_template_id:
         raise ValueError("必须提供 content 或 custom_template_id 之一")
 
+    markdown: dict[str, Any]
     if content:
-        return {"content": content}
-
-    markdown: dict[str, Any] = {"custom_template_id": custom_template_id}
-    if params:
-        for item in params:
-            if not isinstance(item, dict) or not item.get("key"):
-                raise ValueError("markdown params 的每一项都必须是含 key 字段的字典")
-            if "values" not in item:
-                raise ValueError("markdown params 的每一项都必须包含 values 字段")
-        markdown["params"] = list(params)
+        markdown = {"content": content}
+    else:
+        markdown = {"custom_template_id": custom_template_id}
+        if params:
+            for item in params:
+                if not isinstance(item, dict) or not item.get("key"):
+                    raise ValueError("markdown params 的每一项都必须是含 key 字段的字典")
+                if "values" not in item:
+                    raise ValueError("markdown params 的每一项都必须包含 values 字段")
+            markdown["params"] = list(params)
+    if force_verify_image_resource:
+        markdown["force_verify_image_resource"] = True
     return markdown
 
 

@@ -177,13 +177,6 @@ def _validate_passive_source(msg_id: str, event_id: str) -> str | None:
     return None
 
 
-def _validate_force_verify_image_resource(value: bool) -> str | None:
-    """校验图片资源强校验开关。"""
-    if not isinstance(value, bool):
-        return "force_verify_image_resource 必须是布尔值"
-    return None
-
-
 async def _validate_public_media_url(url: str) -> tuple[str | None, str]:
     """校验媒体 URL 只指向公网 HTTP(S) 地址。
 
@@ -317,7 +310,7 @@ class QQBotMessageService(BaseService):
         Returns:
             包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
-        # 群聊接口把 content 标为必填，非文本消息也需带上空串占位
+        # 保留群非文本消息的空串兼容占位；当前文档 content 选填，Markdown 时须为空。
         if target_type == TARGET_TYPE_GROUP:
             payload.setdefault("content", "")
         path = self._resolve_path(target_type, target_id)
@@ -427,6 +420,7 @@ class QQBotMessageService(BaseService):
             msg_id: 被动回复关联的原始消息 id。
             event_id: 被动回复关联的事件 id。
             msg_seq: 回复序号，同一 ``msg_id`` 下必须唯一。
+            force_verify_image_resource: 强校验图片资源；True 写入 Markdown 内。
 
         Returns:
             包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
@@ -441,20 +435,16 @@ class QQBotMessageService(BaseService):
             Raises:
                 ValueError: Markdown 载体、图片资源校验参数或按钮结构非法。
             """
-            error = _validate_force_verify_image_resource(force_verify_image_resource)
-            if error:
-                raise ValueError(error)
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
                     content=content,
                     custom_template_id=custom_template_id,
                     params=params,
+                    force_verify_image_resource=force_verify_image_resource,
                 ),
                 "keyboard": build_keyboard(rows),
             }
-            if force_verify_image_resource:
-                payload["force_verify_image_resource"] = True
             self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
             return payload
 
@@ -595,6 +585,7 @@ class QQBotMessageService(BaseService):
             msg_id: 被动回复关联的原始消息 id。
             event_id: 被动回复关联的事件 id。
             msg_seq: 回复序号。
+            force_verify_image_resource: 强校验图片资源；True 写入 Markdown 内。
 
         Returns:
             包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
@@ -609,17 +600,14 @@ class QQBotMessageService(BaseService):
             Raises:
                 ValueError: 模板参数、图片资源校验参数或按钮结构非法。
             """
-            error = _validate_force_verify_image_resource(force_verify_image_resource)
-            if error:
-                raise ValueError(error)
             payload: dict[str, Any] = {
                 "msg_type": MSG_TYPE_MARKDOWN,
                 "markdown": build_markdown(
-                    custom_template_id=custom_template_id, params=params
+                    custom_template_id=custom_template_id,
+                    params=params,
+                    force_verify_image_resource=force_verify_image_resource,
                 ),
             }
-            if force_verify_image_resource:
-                payload["force_verify_image_resource"] = True
             if rows:
                 payload["keyboard"] = build_keyboard(rows)
             self._apply_passive_fields(payload, msg_id, event_id, msg_seq)

@@ -75,7 +75,7 @@ result = await service.get_user_info(user_openid)
 
 成功时 `message_id` 为 QQ 返回的消息 ID，`error` 为 `None`；失败时 `message_id` 为 `""`。
 
-Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。只在传入 `True` 时下发该字段；此时 QQ 图片资源转存失败会让**整条消息发送失败**。默认关闭时保持 QQ 的旧行为：图片可能被静默丢弃而消息仍发送。
+Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。只在传入 `True` 时向 **`markdown.force_verify_image_resource`** 下发该字段，不写入请求顶层；此时 QQ 图片资源转存失败会让**整条消息发送失败**。默认关闭时保持 QQ 的旧行为：图片可能被静默丢弃而消息仍发送。
 
 ---
 
@@ -163,6 +163,7 @@ async def send_keyboard(
     msg_id: str = "",
     event_id: str = "",
     msg_seq: int | None = None,
+    force_verify_image_resource: bool = False,
 ) -> dict[str, Any]
 ```
 
@@ -192,6 +193,7 @@ async def send_ark(
     msg_id: str = "",
     event_id: str = "",
     msg_seq: int | None = None,
+    force_verify_image_resource: bool = False,
 ) -> dict[str, Any]
 ```
 

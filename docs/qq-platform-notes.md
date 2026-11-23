@@ -24,7 +24,7 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `msg_type` | int | 必填 |
-| `content` | string | 单聊选填；**群聊必填**（本插件对非文本消息自动补空串占位） |
+| `content` | string | 当前群/单聊请求表选填；传 markdown 后须为空，本插件对群非文本消息保留空串兼容占位 |
 | `markdown` | object | Markdown 对象 |
 | `keyboard` | object | Keyboard 对象，必须与 markdown 同时下发 |
 | `ark` | object | Ark 对象 |
@@ -34,7 +34,7 @@
 | `event_id` | string | 前置事件 ID，支持 `INTERACTION_CREATE`、`C2C_MSG_RECEIVE`、`GROUP_MSG_RECEIVE` 等 |
 | `msg_seq` | int | 与 `msg_id` 联合使用，相同组合重复发送会失败，不填默认 1 |
 
-`force_verify_image_resource` 是 Markdown 消息新增的可选 boolean。默认 `false` 时，图片转存失败可能被平台静默忽略而消息继续发送；传 `true` 时，任何图片资源转存失败都会中断整条消息并返回错误。`send_keyboard()` 与 `send_markdown_template()` 仅在调用方显式传 `True` 时写入该字段。
+`force_verify_image_resource` 是 `MessageMarkdown` 对象中的可选 boolean，请求路径为 `markdown.force_verify_image_resource`，不是顶层字段。默认 `false` 时，图片转存失败可能被平台静默忽略而消息继续发送；传 `true` 时，任何图片资源转存失败都会中断整条消息并返回错误。`send_keyboard()` 与 `send_markdown_template()` 仅在调用方显式传 `True` 时写入该字段。
 
 返回：`{"id": "消息唯一ID", "timestamp": 发送时间}`。
 

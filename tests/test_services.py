@@ -78,7 +78,7 @@ class TestMessageRouting:
     async def test_group_payload_always_has_content(
         self, message_service, patch_send_handler
     ) -> None:
-        """群聊接口把 content 标为必填，非文本消息也需占位。"""
+        """群非文本发送保留兼容空串，符合当前 content 选填契约。"""
         await message_service.send_ark("group", "g1", 23, [{"key": "k", "value": "v"}])
         assert sent_body(patch_send_handler)["content"] == ""
 
