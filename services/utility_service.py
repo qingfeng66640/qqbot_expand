@@ -41,14 +41,17 @@ class QQBotUtilityService(BaseService):
     async def generate_share_link(
         self, *, url_link: str = "", callback_data: str = ""
     ) -> dict[str, Any]:
-        """生成机器人分享链接。"""
+        """按当前官方文档仅使用 callback_data 生成分享链接。
+
+        url_link 保留为旧调用的显式错误入口；非空时不发任何请求。
+        """
         if not isinstance(url_link, str) or not isinstance(callback_data, str):
             return failure("url_link 与 callback_data 必须是字符串")
         if len(callback_data) > 32:
             return failure("callback_data 最长 32 个字符")
+        if url_link:
+            return failure("当前官方接口不支持 url_link 请求参数；仅接受 callback_data，未发起请求")
         body: dict[str, Any] = {}
-        if url_link.strip():
-            body["url_link"] = url_link.strip()
         if callback_data:
             body["callback_data"] = callback_data
         return await api_request(self.plugin, "POST", "/v2/generate_url_link", body)

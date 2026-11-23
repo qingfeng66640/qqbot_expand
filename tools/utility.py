@@ -45,10 +45,9 @@ class QQGenerateShareLinkTool(BaseTool):
     async def execute(
         self,
         callback_data: Annotated[str, "可选回传标识，最长 32 个字符"] = "",
-        url_link: Annotated[str, "可选跳转 URL"] = "",
     ) -> tuple[bool, str | dict]:
         """生成机器人分享链接。"""
         result = await QQBotUtilityService(self.plugin).generate_share_link(
-            url_link=url_link, callback_data=callback_data
+            callback_data=callback_data
         )
         return (True, result["data"]) if result["success"] else (False, result["error"])
