@@ -24,12 +24,15 @@ import random
 from typing import Any
 from urllib.parse import quote, urlencode
 
+import httpx
+
 from src.app.plugin_system.api.log_api import get_logger
 
 from .constants import API_BASE_PRODUCTION
 from .errors import (
     ERROR_ADAPTER_NOT_READY,
     ERROR_GENERIC,
+    format_api_error_diagnostics,
     sanitize_error,
     sanitize_http_status,
 )
@@ -247,6 +250,17 @@ def _retry_settings(plugin: Any) -> tuple[int, float, float, float]:
     )
 
 
+def _log_http_failure(method: str, response: Any) -> None:
+    """记录可关联的 QQ 错误码，不记录响应正文、完整 URL 或异常文本。"""
+    try:
+        payload = response.json()
+    except (ValueError, RecursionError):
+        # 诊断为尽力读取；畸形或过深 JSON 不能破坏 HTTP 失败返回。
+        payload = None
+    details = format_api_error_diagnostics(payload)
+    logger.warning(f"{method} QQ API 失败: status={response.status_code} {details}".rstrip())
+
+
 async def _request_via_adapter(
     send_handler: Any, url: str, body: dict[str, Any]
 ) -> dict[str, Any]:
@@ -263,22 +277,27 @@ async def _request_via_adapter(
     try:
         token = await send_handler.get_token()
     except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
-        logger.warning(f"获取 access_token 失败: {exc}")
-        return failure(sanitize_error(exc))
+        error = sanitize_error(exc)
+        logger.warning(f"获取 access_token 失败: {error}")
+        return failure(error)
 
     headers = {"Authorization": f"QQBot {token}", **_JSON_HEADERS}
     try:
         response = await send_handler.post_api(url, headers, body)
+    except httpx.HTTPStatusError as exc:
+        _log_http_failure("POST", exc.response)
+        return failure(sanitize_http_status(exc.response.status_code))
     except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
-        logger.warning(f"POST {url} 失败: {exc}")
-        return failure(sanitize_error(exc))
+        error = sanitize_error(exc)
+        logger.warning(f"POST 请求失败: {error}")
+        return failure(error)
 
     if not isinstance(response, dict):
         return success({})
-    # QQ API 失败时返回 {"code": xxx, "message": "..."}，此处只透出错误码归类
+    # QQ 业务错误只记录白名单诊断字段，不透传正文。
     if response.get("code") and response.get("message"):
-        logger.warning(f"POST {url} 返回业务错误: {response}")
-        return failure(sanitize_error(str(response.get("code"))))
+        logger.warning(f"POST QQ API 业务失败: {format_api_error_diagnostics(response)}")
+        return failure(sanitize_error(str(response.get("err_code") or response.get("code"))))
     return success(response)
 
 
@@ -316,15 +335,16 @@ async def _request_via_http(
         try:
             token = await send_handler.get_token()
         except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
-            logger.warning(f"获取 access_token 失败: {exc}")
-            return failure(sanitize_error(exc))
+            error = sanitize_error(exc)
+            logger.warning(f"获取 access_token 失败: {error}")
+            return failure(error)
 
         headers = {"Authorization": f"QQBot {token}", **_JSON_HEADERS}
         try:
             response = await client.request(method, url, headers=headers, json=body)
         except Exception as exc:  # noqa: BLE001 - 网络错误可重试
             last_error = sanitize_error(exc)
-            logger.warning(f"{method} {url} 第 {attempt + 1} 次请求失败: {exc}")
+            logger.warning(f"{method} 第 {attempt + 1} 次请求失败: {last_error}")
             if attempt >= max_attempts:
                 break
             await _sleep_backoff(attempt, backoff_base, backoff_max, jitter)
@@ -332,7 +352,7 @@ async def _request_via_http(
 
         # HTTP 状态码错误不重试，直接归类返回
         if response.status_code >= 400:
-            logger.warning(f"{method} {url} 返回 HTTP {response.status_code}")
+            _log_http_failure(method, response)
             return failure(sanitize_http_status(response.status_code))
         return success(_parse_json(response))
 

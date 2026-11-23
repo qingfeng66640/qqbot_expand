@@ -9,7 +9,11 @@ QQ 开放平台的原始错误里可能带上 token、appid、完整 URL 等敏�
 """
 from __future__ import annotations
 
+import re
+from typing import Any
+
 __all__ = [
+    "format_api_error_diagnostics",
     "ERROR_ADAPTER_NOT_READY",
     "ERROR_BAD_REQUEST",
     "ERROR_FORBIDDEN",
@@ -60,10 +64,29 @@ def sanitize_error(exc: BaseException | str) -> str:
         白名单内的中文错误描述，绝不包含原始异常内容。
     """
     text = str(exc).lower()
+    if text in {"30001", "40030001"}:
+        return ERROR_BAD_REQUEST
     for keywords, message in _KEYWORD_RULES:
         if any(keyword in text for keyword in keywords):
             return message
     return ERROR_GENERIC
+
+
+def format_api_error_diagnostics(payload: Any) -> str:
+    """只保留有界数字错误码与 32 位十六进制 trace，不输出原始正文。"""
+    if not isinstance(payload, dict):
+        return ""
+    fields: list[str] = []
+    for key in ("code", "err_code"):
+        value = payload.get(key)
+        if type(value) is int or isinstance(value, str):
+            numeric = str(value)
+            if re.fullmatch(r"[0-9]{1,10}", numeric):
+                fields.append(f"{key}={numeric}")
+    trace_id = payload.get("trace_id")
+    if isinstance(trace_id, str) and re.fullmatch(r"[0-9a-fA-F]{32}", trace_id):
+        fields.append(f"trace_id={trace_id}")
+    return " ".join(fields)
 
 
 def sanitize_http_status(status_code: int) -> str:
