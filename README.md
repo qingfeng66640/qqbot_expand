@@ -16,6 +16,7 @@
 | 模板 Markdown | 无 | `qqbot_message.send_markdown_template()` |
 | 引用回复（message_reference） | 无 | `qqbot_message.send_reply()` |
 | 文本内嵌交互标签 | 无 | `src/builders.py` 的 `at_user` / `cmd_enter` / `cmd_input` 等 |
+| 群聊 @全体 | 普通发送拒绝隐式触发 | `qqbot_message.send_group_mention_everyone()`；显式确认及管理员预检，一次性发送 |
 | embed（`msg_type=4`） | 无 | `qqbot_message.send_embed()`（QQ 侧当前不支持单聊/群聊，见下） |
 | 富媒体 URL 上传与发送（`msg_type=7`） | 底层出站/分片能力 | `upload_media_from_url()` / `send_media()` / `send_media_from_url()` |
 | GET / PUT / PATCH / DELETE 接口 | 无 | `qqbot_raw.request()` |
@@ -199,7 +200,7 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
 | embed | **不支持** | **不支持** | 仅文字子频道与频道私信可用 |
 | `action.enter`（点击即发送） | 支持 | **不支持** | `qq_send_keyboard` 已按会话类型自动处理 |
 | `<qqbot-cmd-enter />` | 支持 | **不支持** | 仅 Markdown 内生效 |
-| `<qqbot-at-everyone />` | 不支持 | 不支持 | 仅文字子频道可用 |
+| `<qqbot-at-everyone />` | 不支持 | 文本/Markdown 支持 | 管理员，每群自然日一次；使用显式群通知 Service |
 | `<emoji:id>` | 不支持 | 不支持 | 仅频道可用，且仅 `type=1` 系统表情 |
 
 发送频次（官方规则，超限会发送失败）：

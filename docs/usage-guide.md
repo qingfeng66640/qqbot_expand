@@ -679,10 +679,21 @@ content = f"试试 {cmd_input('/search 关键词', show='搜索')}"
 | 标签 | 单聊 | 群聊 | 子频道 |
 |---|---|---|---|
 | `at_user()` | — | ✅ | ✅ |
-| `at_everyone()` | ❌ | ❌ | ✅ |
+| `at_everyone()` | ❌ | ✅（管理员，群文本/Markdown，每群自然日一次） | ✅ |
 | `cmd_enter()` | ✅ | ❌ | ❌ |
 | `cmd_input()` | ✅ | ✅ | ✅ |
 | `emoji()` | ❌ | ❌ | ✅ |
+
+群聊 `@全体` 不应把标签直接塞进普通正文。需本次明确调用：
+
+```python
+message_service = service_api.get_service("qqbot_expand:service:qqbot_message")
+result = await message_service.send_group_mention_everyone(
+    group_openid, "本次明确批准的群通知正文", confirm=True, markdown=False,
+)
+```
+
+Service 查询机器人当前角色并严格要求 `admin`；群状态查询本身还需平台白名单权限。QQ 限每群自然日一次，平台判定剩余额度；本地无账本或额外自动授权。高副作用 POST 只尝试一次，未知结果或取消后不自动重放、不降级，不向 LLM 默认注册。普通文本、回复、keyboard、模板/原生 Markdown 和 raw message 会拒绝新旧全体指令；单人 @ 不受该防护影响。
 
 `cmd_enter` / `cmd_input` 只在 **Markdown 消息**里生效，塞进纯文本没有效果。
 文本长度上限 100 字符，超了抛 `ValueError`；urlencode 由函数内部完成，你直接传原文。

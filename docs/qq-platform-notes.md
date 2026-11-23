@@ -148,7 +148,7 @@ item 类型仅 `command/link`，名称最多 14 个展示字符（约 7 个汉�
 | 标签 | 作用域 | 说明 |
 | --- | --- | --- |
 | `<qqbot-at-user id="" />` | 群聊、文字子频道 | 旧协议 `<@userid>` 即将弃用 |
-| `<qqbot-at-everyone />` | **仅文字子频道** | 需要 @全体成员 权限 |
+| `<qqbot-at-everyone />` | 群聊文本/Markdown、文字子频道 | 群内必须为管理员，每群自然日一次；普通消息禁止隐式触发，走显式群通知 Service |
 | `<qqbot-cmd-enter text="" />` | **仅单聊**，仅 Markdown | 点击后直接发送，text ≤ 100 字符且需 urlencode |
 | `<qqbot-cmd-input text="" show="" reference="" />` | 仅 Markdown | 点击后插入输入框，text / show ≤ 100 字符且需 urlencode |
 | `<#channel_id>` | 仅频道 | 跳转子频道 |

@@ -394,7 +394,10 @@ def at_user(openid: str) -> str:
 def at_everyone() -> str:
     """生成 @全体成员 的内嵌标签。
 
-    **仅文字子频道可用**，群聊与单聊不支持；且需要机器人拥有 @全体成员 权限。
+    群文本与 Markdown 可用，但机器人必须为该群管理员，每群自然日限一次，
+    额度以 QQ 平台为准。群聊应通过 ``send_group_mention_everyone`` 显式确认，
+    不能把本标签混入普通发送；此构造器仅生成字符串，不检查权限或剩余额度。
+    文字子频道仍需 @全体权限；单聊不支持。
 
     Returns:
         ``<qqbot-at-everyone />``。

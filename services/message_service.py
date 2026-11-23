@@ -3,7 +3,7 @@
 补齐 ``qqbot_adapter`` 未覆盖的消息类型：keyboard（按钮）、ark（卡片）、
 embed、模板 Markdown、引用回复及图文 card。
 
-所有方法遵循统一签名风格::
+普通发送方法遵循统一签名风格::
 
     send_xxx(target_type, target_id, ..., msg_id="", event_id="", msg_seq=None)
 
@@ -28,6 +28,7 @@ from src.app.plugin_system.base import BaseService
 
 from ..src.bridge import api_request, encode_path_segment
 from ..src.builders import (
+    at_everyone,
     build_ark,
     build_embed,
     build_keyboard,
@@ -53,6 +54,12 @@ from ..src.constants import (
     TARGET_TYPE_USER,
     TARGET_TYPES,
 )
+from ..src.everyone import (
+    contains_everyone,
+    payload_mentions_everyone,
+    snapshot_message_payload,
+)
+from .group_info_service import QQBotGroupInfoService
 
 __all__ = ["QQBotMessageService"]
 
@@ -301,6 +308,8 @@ class QQBotMessageService(BaseService):
         target_type: str,
         target_id: str,
         payload: dict[str, Any],
+        *,
+        mention_everyone: bool = False,
     ) -> dict[str, Any]:
         """发送已拼装好的消息体。
 
@@ -308,18 +317,34 @@ class QQBotMessageService(BaseService):
             target_type: ``"user"`` 或 ``"group"``。
             target_id: 目标 openid。
             payload: 完整消息体。
+            mention_everyone: 仅供专用入口完成确认与管理员预检后使用，禁止重试。
 
         Returns:
             包含 ``message_id``（撤回 ID）与 ``ref_idx``（引用索引）的发送结果。
         """
+        # 必须在 token/传输的首次挂起前隔离嵌套容器；不能检查后仍发送调用方原对象。
+        try:
+            payload = snapshot_message_payload(payload)
+        except ValueError as exc:
+            return _failure(str(exc))
+        if not mention_everyone and payload_mentions_everyone(payload):
+            return _failure("@全体必须使用 send_group_mention_everyone 专用入口并显式确认")
         # 保留群非文本消息的空串兼容占位；当前文档 content 选填，Markdown 时须为空。
         if target_type == TARGET_TYPE_GROUP:
             payload.setdefault("content", "")
         path = self._resolve_path(target_type, target_id)
-        result = await api_request(self.plugin, "POST", path, payload)
+        result = await api_request(
+            self.plugin, "POST", path, payload,
+            retry_network_errors=not mention_everyone,
+        )
         if not result["success"]:
             return _failure(result["error"])
         data = result["data"] or {}
+        if mention_everyone and (
+            data.get("code") or data.get("err_code")
+            or not isinstance(data.get("id"), str) or not data["id"].strip()
+        ):
+            return _failure("@全体发送未取得有效确认，请人工核实结果，勿自动重试")
         message_id = str(data.get("id", ""))
         ext_info = data.get("ext_info")
         ref_idx = ""
@@ -363,6 +388,69 @@ class QQBotMessageService(BaseService):
         return await self._send(target_type, target_id, payload)
 
     # ============ 对外方法 ============
+
+    async def send_group_mention_everyone(
+        self,
+        group_openid: str,
+        content: str,
+        *,
+        markdown: bool = False,
+        confirm: bool = False,
+        msg_id: str = "",
+        event_id: str = "",
+        msg_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """显式确认后，以文本或原生 Markdown 在指定群 @全体。
+
+        机器人必须为该群管理员，群状态查询还需 QQ 白名单权限（11253）。
+        QQ 平台限制每群自然日仅一次，平台是额度唯一权威；本地无法证明
+        剩余额度，不建立本地额度账本。发送只尝试一次，未知网络结果或取消
+        后不得自动重放，也不会降级为普通消息或私聊。此入口不暴露为 Tool。
+
+        Args:
+            group_openid: 群 OpenID，仅允许群消息路由。
+            content: 非空正文；不能含新旧 @全体标签，入口自动插入唯一新标签。
+            markdown: True 使用原生 Markdown，False 使用文本，必须是布尔值。
+            confirm: 只有显式传入 True 才视为本次发送授权。
+            msg_id: 被动回复关联的消息 ID，与 event_id 互斥。
+            event_id: 被动回复关联的事件 ID。
+            msg_seq: 回复序号；带 msg_id 时缺省为 1。
+
+        Returns:
+            统一发送结果；查询失败、非 admin、发送未确认时返回失败。
+        """
+        if confirm is not True:
+            return _failure("@全体发送必须显式设置 confirm=True")
+        error = _validate_target(TARGET_TYPE_GROUP, group_openid) or _validate_msg_seq(msg_seq)
+        if error:
+            return _failure(error)
+        if not isinstance(content, str) or not content.strip():
+            return _failure("content 不能为空")
+        if not isinstance(markdown, bool):
+            return _failure("markdown 必须是布尔值")
+        if not isinstance(msg_id, str) or not isinstance(event_id, str):
+            return _failure("msg_id 与 event_id 必须是字符串")
+        error = _validate_passive_source(msg_id, event_id)
+        if error:
+            return _failure(error)
+        if contains_everyone(content):
+            return _failure("content 不能包含 @全体标签；专用入口会插入唯一新标签")
+
+        state = await QQBotGroupInfoService(plugin=self.plugin).get_bot_group_state(group_openid)
+        if not state["success"]:
+            return _failure(f"群管理员状态查询失败：{state['error']}")
+        data = state["data"]
+        if data.get("code") or data.get("err_code") or data.get("member_role") != "admin":
+            return _failure("无法确认机器人为该群管理员（member_role 必须为 admin），未发送")
+
+        text = f"{at_everyone()} {content}"
+        payload: dict[str, Any]
+        if markdown:
+            payload = {"msg_type": MSG_TYPE_MARKDOWN, "markdown": build_markdown(content=text)}
+        else:
+            payload = {"msg_type": MSG_TYPE_TEXT, "content": text}
+        self._apply_passive_fields(payload, msg_id, event_id, msg_seq)
+        return await self._send(TARGET_TYPE_GROUP, group_openid, payload, mention_everyone=True)
 
     async def send_text(
         self,

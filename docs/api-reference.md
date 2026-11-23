@@ -77,6 +77,22 @@ result = await service.get_user_info(user_openid)
 
 Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。只在传入 `True` 时向 **`markdown.force_verify_image_resource`** 下发该字段，不写入请求顶层；此时 QQ 图片资源转存失败会让**整条消息发送失败**。默认关闭时保持 QQ 的旧行为：图片可能被静默丢弃而消息仍发送。
 
+### `send_group_mention_everyone`
+
+```python
+async def send_group_mention_everyone(
+    group_openid: str, content: str, *, markdown: bool = False,
+    confirm: bool = False, msg_id: str = "", event_id: str = "",
+    msg_seq: int | None = None,
+) -> dict[str, Any]
+```
+
+仅供受信业务显式群通知，不新增默认 LLM Tool。必须 `confirm is True`；先经群状态 Service 查询，严格确认 `member_role="admin"`，查询失败、无白名单权限或角色不符均不发送。正文不得含新旧全体标签，入口自动插入唯一 `<qqbot-at-everyone />`；`markdown=True` 使用原生 Markdown，否则为文本。
+
+官方限制为**每群自然日一次**，QQ 平台是额度唯一权威；本地不维护通用权限账本、不缓存管理员角色，也不能证明还剩额度。POST 固定只尝试一次，不自动刷新后重放、不降级为普通消息或私聊；超时、取消或未知结果后应人工核实，不自动重试。返回保留 `message_id/ref_idx`；畸形或无有效发送 ID 的响应不当作成功登记。
+
+普通文本、回复、原生/模板 Markdown、keyboard 与 raw message 发送中央出口遇到新旧全体提及意图会明确失败（包括 `@everyone你好`），不能通过正文隐式授权。底层 `qqbot_raw` 是受信通用 API 通道，不是此受控通知接口；调用方仍须自行满足平台权限。
+
 ### `send_tuwen_card`
 
 ```python
@@ -817,7 +833,7 @@ def cmd_input(text: str, *, show: str = "", reference: bool = False) -> str
 | 函数 | 单聊 | 群聊 | 子频道 | 载体要求 |
 |---|---|---|---|---|
 | `at_user` | — | ✅ | ✅ | 含文本的消息 |
-| `at_everyone` | ❌ | ❌ | ✅ | 需 @全体成员 权限 |
+| `at_everyone` | ❌ | ✅ | ✅ | 群文本/Markdown：管理员，每群自然日一次；仅构造标签，不授予普通发送权限 |
 | `emoji` | ❌ | ❌ | ✅ | 仅 `type=1` 系统表情 |
 | `cmd_enter` | ✅ | ❌ | ❌ | **仅 Markdown** |
 | `cmd_input` | ✅ | ✅ | ✅ | **仅 Markdown** |
