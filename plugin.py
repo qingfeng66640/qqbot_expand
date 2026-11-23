@@ -23,16 +23,18 @@ from .config import QQBotExpandConfig
 from .handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from .handlers.interaction_event_handler import QQBotInteractionEventHandler
 from .services import ALL_SERVICES
-from .src.cos_transport import create_cos_client, private_cos_diagnostics
 from .src.interaction import InteractionRuntime
 from .src.join_requests import JoinRequestRuntime
 from .src.managed_panels import ManagedPanelRuntime
+from .src.cos_transport import create_cos_client, private_cos_diagnostics
+from .src.material_upload import MaterialUploadClient
 from .src.sent_messages import SentMessageRegistry
 from .services.chunked_media_service import QQBotChunkedMediaService
 from .services.group_admin_service import QQBotGroupAdminService
 from .services.group_info_service import QQBotGroupInfoService
 from .services.group_members_service import QQBotGroupMembersService
 from .services.interaction_service import QQBotInteractionService
+from .services.material_service import QQBotMaterialService
 from .services.menu_panel_service import QQBotMenuPanelService
 from .services.message_service import QQBotMessageService
 from .services.raw_service import QQBotRawService
@@ -69,8 +71,8 @@ class QQBotExpandPlugin(BasePlugin):
     """QQ Bot 扩展能力插件。
 
     Attributes:
-        http_client: 全插件共享的 httpx 异步客户端，供各 Service 发起
-            非 POST 请求；未加载完成时为 None。
+        http_client: 全插件共享的 QQ API 异步客户端；未加载时为 None。
+        chunked_client: 分片 PUT 使用的独立 COS 客户端；未加载时为 None。
     """
 
     plugin_name = "qqbot_expand"
@@ -87,6 +89,7 @@ class QQBotExpandPlugin(BasePlugin):
         super().__init__(config)
         self.http_client: httpx.AsyncClient | None = None
         self.chunked_client: httpx.AsyncClient | None = None
+        self.material_upload: MaterialUploadClient | None = None
         self.interaction_runtime = InteractionRuntime(self)
         self.join_request_runtime = JoinRequestRuntime(self)
         self.managed_panel_runtime = ManagedPanelRuntime(self)
@@ -106,6 +109,7 @@ class QQBotExpandPlugin(BasePlugin):
         components = [
             QQBotMessageService,
             QQBotChunkedMediaService,
+            QQBotMaterialService,
             QQBotGroupAdminService,
             QQBotGroupInfoService,
             QQBotGroupMembersService,
@@ -149,6 +153,9 @@ class QQBotExpandPlugin(BasePlugin):
         await self.join_request_runtime.close()
         await self.managed_panel_runtime.reset()
         http_cfg = getattr(self.config, "http", None)
+        if self.material_upload is not None:
+            await self.material_upload.aclose()
+            self.material_upload = None
         await self._close_chunked_client()
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -166,25 +173,29 @@ class QQBotExpandPlugin(BasePlugin):
             trust_env=False,
         )
         try:
-            self.chunked_client = create_cos_client(
-                request_timeout=float(getattr(http_cfg, "request_timeout", 30.0)),
-                connect_timeout=float(getattr(http_cfg, "connect_timeout", 10.0)),
+            cos_timeouts = {
+                "request_timeout": float(getattr(http_cfg, "request_timeout", 30.0)),
+                "connect_timeout": float(getattr(http_cfg, "connect_timeout", 10.0)),
+            }
+            self.chunked_client = create_cos_client(**cos_timeouts)
+            features = getattr(self.config, "features", None)
+            if getattr(features, "enable_material_service", False) is True:
+                self.material_upload = MaterialUploadClient(**cos_timeouts)
+            if self._interaction_enabled():
+                logger.info(
+                    "qqbot_expand 互动回调已启用；请确保 qqbot_adapter 使用 intents=100663296"
+                )
+            try:
+                await self.managed_panel_runtime.schedule()
+            except Exception as exc:  # noqa: BLE001 - 对账调度失败不阻断插件加载
+                logger.error(f"调度托管面板对账失败: {exc}")
+            tool_count = len(ALL_TOOLS) if self._tools_enabled() else 0
+            logger.info(
+                f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
             )
         except BaseException:
             await self.on_plugin_unloaded()
             raise
-        if self._interaction_enabled():
-            logger.info(
-                "qqbot_expand 互动回调已启用；请确保 qqbot_adapter 使用 intents=100663296"
-            )
-        try:
-            await self.managed_panel_runtime.schedule()
-        except Exception as exc:  # noqa: BLE001 - 对账调度失败不阻断插件加载
-            logger.error(f"调度托管面板对账失败: {exc}")
-        tool_count = len(ALL_TOOLS) if self._tools_enabled() else 0
-        logger.info(
-            f"qqbot_expand 插件已加载: {tool_count} 个 Tool, {len(ALL_SERVICES)} 个 Service"
-        )
 
     async def _close_chunked_client(self) -> None:
         """关闭分片专用池，不让 COS 异常详情进入卸载日志。"""
@@ -221,8 +232,15 @@ class QQBotExpandPlugin(BasePlugin):
         return True
 
     async def on_plugin_unloaded(self) -> None:
-        """插件卸载时关闭 COS、互动任务和 QQ API 客户端。"""
+        """插件卸载时先关闭 COS 资源，再清理互动任务与共享客户端。"""
         await self._close_chunked_client()
+        if self.material_upload is not None:
+            try:
+                await self.material_upload.aclose()
+            except Exception:  # 不记录可能含预签名 URL 的异常文本。
+                logger.warning("关闭图片素材上传资源失败")
+            finally:
+                self.material_upload = None
         try:
             await self.managed_panel_runtime.close()
         except Exception as exc:  # noqa: BLE001 - 卸载阶段不应抛出

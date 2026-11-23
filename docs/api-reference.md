@@ -39,6 +39,29 @@ Markdown 发送方法额外支持 `force_verify_image_resource: bool = False`。
 
 ---
 
+## Service: `qqbot_expand:service:qqbot_material`
+
+Markdown 图片素材服务；与 `qqbot_chunked_media` 的富媒体 `file_info` 上传协议不同。
+需要在现有 `[features]` 中显式设置 `enable_material_service=true`；删除另需
+`allow_material_delete=true` 与调用时的 `confirm=True`。两项默认均为 false。
+
+| 方法 | 行为 | 返回 |
+| --- | --- | --- |
+| `upload_image(file_name, content, content_type)` | 接受内存 bytes，经 prepare → 安全 PUT → complete 上传 | `success/data/error`；成功数据含素材 ID、`qqbot-media://image/v1/` 引用及有效期信息 |
+| `list_images(*, cursor="")` | 只查询一页，使用返回的 `next_cursor` 继续 | 白名单图片列表与分页信息 |
+| `delete_image(image_id, *, confirm=False)` | 显式删除并释放配额，不自动清理库存 | `success/data/error` |
+
+上传只接受文件名、图片 bytes 和 MIME，不接受本地路径、任意下载地址或调用方预签名 URL。
+限制为 10 MiB（10 × 1024 × 1024 bytes），支持 PNG/JPEG/GIF/WebP，文件名扩展名、声明 MIME 和真实格式须一致。另有本地安全预算：最多 1024 帧，累计解码不超过 89,478,485 像素；这不是 QQ 官方新增限制。
+服务不向返回值或日志透传预签名 URL、临时 preview_url 或 QQ 凭证；图片引用与当前 Bot 绑定，不能跨 Bot 使用。
+
+对象存储请求独立于 QQ 鉴权，禁用重定向和环境代理继承，并约束受信 COS 目标及实际连接地址。
+prepare/complete 显式禁用重试，由一次性控制面路径复用 Adapter token，不进入其内部可重试的 POST 出口；HTTP 401 也不自动刷新后重放。上传或完成结果未知时保守报错，不重新创建或自动补偿删除。
+没有新增默认 LLM Tool、后台缓存、自动过期刷新或自动删除。客户端和并发限制由插件实例持有，取消传播并在卸载时释放网络资源。
+图片解码经框架 CPU 池调度固定的隔离 Python worker，按插件实际文件位置加载纯校验模块，避免动态模块名不能被 spawn 导入。图片通过 stdin 传递，不写临时文件、不使用 shell/eval、不修改全局导入路径。worker 最长运行15秒；外层操作仍有总时限。调用取消后不会继续发 QQ 请求，已开始的纯计算可在框架执行器中有界收尾，不能声称取消瞬间强杀所有计算。
+
+---
+
 ## Service: `qqbot_expand:service:qqbot_group_admin`
 
 供受信插件调用的群管理 API；机器人必须是目标群管理员。所有方法返回桥接统一结构：

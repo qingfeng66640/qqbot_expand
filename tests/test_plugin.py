@@ -45,7 +45,7 @@ class TestManifestConsistency:
             for item in load_manifest()["include"]
         }
         actual = (
-            {("service", svc.service_name) for svc in ALL_SERVICES}
+            {("service", svc.name) for svc in ALL_SERVICES}
             | {("tool", tool.tool_name) for tool in ALL_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_GROUP_INFO_TOOLS}
             | {("tool", tool.tool_name) for tool in ALL_UTILITY_TOOLS}
@@ -69,6 +69,8 @@ class TestManifestConsistency:
         """非 POST 请求依赖自持的 httpx 客户端。"""
         deps = " ".join(load_manifest()["python_dependencies"])
         assert "httpx" in deps
+        assert "httpcore>=1.0.9,<2" in deps
+        assert "pillow>=11.0.0" in deps
 
 
 class TestConfig:
@@ -89,6 +91,8 @@ class TestConfig:
         assert config.features.enable_group_admin_tools is False
         assert config.features.group_admin_allowed_group_openids == []
         assert config.features.enable_menu_panel_service is False
+        assert config.features.enable_material_service is False
+        assert config.features.allow_material_delete is False
         assert config.features.enable_menu_panel_tools is False
         assert config.features.allow_global_menu_write is False
         assert config.features.allow_panel_create is False

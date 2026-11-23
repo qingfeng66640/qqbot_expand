@@ -6,6 +6,7 @@ from .group_admin_service import QQBotGroupAdminService
 from .group_info_service import QQBotGroupInfoService
 from .group_members_service import QQBotGroupMembersService
 from .interaction_service import QQBotInteractionService
+from .material_service import QQBotMaterialService
 from .menu_panel_service import QQBotMenuPanelService
 from .message_service import QQBotMessageService
 from .raw_service import QQBotRawService
@@ -18,6 +19,7 @@ __all__ = [
     "QQBotGroupInfoService",
     "QQBotGroupMembersService",
     "QQBotInteractionService",
+    "QQBotMaterialService",
     "QQBotMenuPanelService",
     "QQBotMessageService",
     "QQBotRawService",
@@ -27,6 +29,7 @@ __all__ = [
 ALL_SERVICES: list[type] = [
     QQBotMessageService,
     QQBotChunkedMediaService,
+    QQBotMaterialService,
     QQBotGroupAdminService,
     QQBotGroupInfoService,
     QQBotGroupMembersService,

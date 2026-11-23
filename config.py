@@ -128,6 +128,18 @@ class QQBotExpandConfig(BaseConfig):
             depends_on="enable_tools",
             depends_value=True,
         )
+        enable_material_service: bool = Field(
+            default=False,
+            description="是否允许受信插件上传和查询 QQ Markdown 图片素材（启用后需重新加载插件）",
+            label="启用图片素材 Service",
+            tag="security",
+        )
+        allow_material_delete: bool = Field(
+            default=False,
+            description="是否允许删除图片素材；调用时仍需显式 confirm=True",
+            label="允许删除图片素材",
+            tag="security",
+        )
         enable_menu_panel_service: bool = Field(
             default=False,
             description="是否允许调用自定义菜单与指令面板 Service",
