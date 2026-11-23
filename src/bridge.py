@@ -6,10 +6,10 @@
    ``QQBotAdapter`` 实例，再取其 ``send_handler`` 公共属性，绝不访问
    ``_send_handler`` / ``_token_mgr`` 之类的私有成员。
 
-2. **POST 复用适配器**。``SendHandler.post_api()`` 内置了 401 重试与错误处理，
-   普通 POST 走它；禁止重试的 POST 使用插件自持客户端。
+2. **普通 POST 复用适配器**。``SendHandler.post_api()`` 内置了 401 重试与错误处理，
+   默认 POST 走它；显式禁止重试的 POST 不走该内部可重试出口。
 
-3. **非 POST 自持客户端**。``post_api()`` 只支持 POST，GET / PUT / DELETE
+3. **其余请求自持客户端**。GET / PUT / DELETE 及显式一次性 POST
    由本插件自己的 ``httpx.AsyncClient`` 发出，token 仍向适配器索取。
    该客户端的生命周期挂在 ``QQBotExpandPlugin`` 上（Service 每次 get 都是新实例，
    不能缓存长生命周期资源）。
@@ -40,6 +40,7 @@ from .errors import (
     sanitize_error,
     sanitize_http_status,
 )
+from .panel_diagnostics import panel_create_failure, panel_create_summary, panel_has_business_error
 
 logger = get_logger("qqbot_expand")
 
@@ -101,8 +102,8 @@ def resolve_send_handler() -> Any | None:
         from src.app.plugin_system.api import adapter_api
 
         adapter = adapter_api.get_adapter(ADAPTER_SIGNATURE)
-    except Exception as exc:  # noqa: BLE001 - 适配器不可用不应让调用方崩溃
-        logger.warning(f"获取 qqbot_adapter 失败: {exc}")
+    except Exception:  # 发现异常可能包含凭据或 URL，只记录固定摘要。
+        logger.warning("获取 qqbot_adapter 失败，适配器不可用")
         return None
 
     if adapter is None:
@@ -177,6 +178,7 @@ async def api_request(
     query: dict[str, Any] | None = None,
     force_production: bool = False,
     retry_network_errors: bool = True,
+    operation: str | None = None,
 ) -> dict[str, Any]:
     """向 QQ 开放平台发起一次 API 请求。
 
@@ -188,6 +190,7 @@ async def api_request(
         query: 查询参数（GET / DELETE 用）。
         force_production: 强制使用正式域名。互动 ACK 等接口沙箱不支持，需置 True。
         retry_network_errors: 网络异常时是否按配置重试；ACK 等一次性操作应置 False。
+        operation: 可选诊断标识，仅 panel_create 与 POST /v2/panels 匹配时启用。
 
     Returns:
         ``{"success": bool, "data": dict | None, "error": str | None}``。
@@ -207,12 +210,21 @@ async def api_request(
     base_url = API_BASE_PRODUCTION if force_production else str(send_handler.base_url)
     url = build_url(base_url, path, query)
 
+    panel_context = (
+        panel_create_summary(body)
+        if operation == "panel_create" and normalized_method == "POST" and path.strip() == "/v2/panels"
+        else None
+    )
     if _should_log_payload(plugin):
-        logger.info(f"[qqbot_expand] {normalized_method} {url} body={body}")
+        if panel_context is not None:
+            logger.info(panel_context)
+        else:
+            logger.info(f"[qqbot_expand] {normalized_method} {url} body={body}")
 
-    # 一次性 POST 不经 Adapter 内部可重试的公开 POST 出口。
+    # Adapter 的公共 POST 出口内部会重试网络异常；显式一次性请求不能走它。
+    # 保留普通 POST 的既有语义，仅禁重试时复用插件客户端和 Adapter token。
     if normalized_method == "POST" and retry_network_errors:
-        return await _request_via_adapter(send_handler, url, body or {})
+        return await _request_via_adapter(send_handler, url, body or {}, panel_context=panel_context)
     return await _request_via_http(
         plugin,
         send_handler,
@@ -220,6 +232,7 @@ async def api_request(
         url,
         body,
         retry_network_errors=retry_network_errors,
+        panel_context=panel_context,
     )
 
 
@@ -255,13 +268,22 @@ def _retry_settings(plugin: Any) -> tuple[int, float, float, float]:
     )
 
 
-def _log_http_failure(method: str, response: Any) -> str:
+def _log_panel_failure(context: str, status: int | None, payload: Any) -> str:
+    """关联面板操作与安全业务诊断，返回同一错误文案供 Service/Tool 使用。"""
+    error, details = panel_create_failure(status, payload)
+    logger.warning(f"{context} {details}")
+    return error
+
+
+def _log_http_failure(method: str, response: Any, *, panel_context: str | None = None) -> str:
     """记录可关联的 QQ 错误码，不记录响应正文、完整 URL 或异常文本。"""
     try:
         payload = response.json()
     except (ValueError, RecursionError):
         # 诊断为尽力读取；畸形或过深 JSON 不能破坏 HTTP 失败返回。
         payload = None
+    if panel_context is not None:
+        return _log_panel_failure(panel_context, response.status_code, payload)
     details = format_api_error_diagnostics(payload)
     logger.warning(f"{method} QQ API 失败: status={response.status_code} {details}".rstrip())
     if permission_error := removal_permission_error(payload):
@@ -272,7 +294,7 @@ def _log_http_failure(method: str, response: Any) -> str:
 
 
 async def _request_via_adapter(
-    send_handler: Any, url: str, body: dict[str, Any]
+    send_handler: Any, url: str, body: dict[str, Any], *, panel_context: str | None = None
 ) -> dict[str, Any]:
     """走适配器的 ``post_api()`` 发送 POST 请求。
 
@@ -295,7 +317,7 @@ async def _request_via_adapter(
     try:
         response = await send_handler.post_api(url, headers, body)
     except httpx.HTTPStatusError as exc:
-        return failure(_log_http_failure("POST", exc.response))
+        return failure(_log_http_failure("POST", exc.response, panel_context=panel_context))
     except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
         error = sanitize_error(exc)
         logger.warning(f"POST 请求失败: {error}")
@@ -303,6 +325,12 @@ async def _request_via_adapter(
 
     if not isinstance(response, dict):
         return success({})
+    if panel_context is not None:
+        # Adapter 返回解码字典而非 Response，此处不猜测实际 HTTP 状态。
+        if panel_has_business_error(response):
+            return failure(_log_panel_failure(panel_context, None, response))
+        return success(response)
+    # QQ 的 2xx 也可能带业务错误；只依据错误码，不依赖 message 或透传正文。
     if business_error := api_business_error(response):
         logger.warning(f"POST QQ API 业务失败: {format_api_error_diagnostics(response)}")
         return failure(business_error)
@@ -317,6 +345,7 @@ async def _request_via_http(
     body: dict[str, Any] | None,
     *,
     retry_network_errors: bool = True,
+    panel_context: str | None = None,
 ) -> dict[str, Any]:
     """走本插件自持的 httpx 客户端发送非 POST 请求。
 
@@ -339,7 +368,8 @@ async def _request_via_http(
         max_attempts = 0
     last_error = ERROR_GENERIC
 
-    for attempt in range(max_attempts + 1):
+    attempt = 0
+    while True:
         try:
             token = await send_handler.get_token()
         except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
@@ -356,12 +386,15 @@ async def _request_via_http(
             if attempt >= max_attempts:
                 break
             await _sleep_backoff(attempt, backoff_base, backoff_max, jitter)
+            attempt += 1
             continue
 
-        # 非 2xx 响应不重放，也不能解析成成功。
+        # 未取得 2xx 确认即失败；3xx 不能因空正文被解析为成功，也不重放。
         if not 200 <= response.status_code < 300:
-            return failure(_log_http_failure(method, response))
+            return failure(_log_http_failure(method, response, panel_context=panel_context))
         payload = _parse_json(response)
+        if panel_context is not None and panel_has_business_error(payload):
+            return failure(_log_panel_failure(panel_context, response.status_code, payload))
         if business_error := api_business_error(payload):
             logger.warning(f"{method} QQ API 业务失败: {format_api_error_diagnostics(payload)}")
             return failure(business_error)

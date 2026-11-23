@@ -27,6 +27,10 @@ class QQBotMenuPanelService(BaseService):
         """检查 Service 开关后调用统一请求出口。"""
         if not self._service_enabled():
             return failure("菜单与指令面板 Service 未启用")
+        if method == "POST" and path == "/v2/panels":
+            return await api_request(
+                self.plugin, method, path, body, query=query, operation="panel_create"
+            )
         return await api_request(self.plugin, method, path, body, query=query)
 
     async def get_menu(self) -> dict[str, Any]:
