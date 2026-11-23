@@ -84,7 +84,7 @@
 `switch/send_message/link/menu`，二级类型仅 `send_message/link`，链接必须以 `https://` 开头。
 
 指令面板支持 `c2c/group/channel/dm`，单机器人最多 20 个面板，每个面板最多 20 项；
-item 类型仅 `command/link`，名称最多 14 字符、描述最多 30 字符。`target_type=specific`
+item 类型仅 `command/link`，名称最多 14 个展示字符（约 7 个汉字）、描述最多 30 个展示字符（约 15 个汉字）。插件对中文及全角宽字符计 2，其余计 1；一级/二级菜单名称上限为 10/14 个展示字符，不使用 UTF-8 字节计数。`target_type=specific`
 只允许 `c2c + user_openids` 或 `group + group_openids`，`channel/dm` 只能全局投放；创建或
 修改关联对象时单次最多 20 个 OpenID，详情接口最多返回 1000 个关联 OpenID。
 

@@ -23,7 +23,7 @@ class MenuSwitchInput(TypedDict):
 class SubMenuItemRequired(TypedDict):
     """二级菜单项必填字段。"""
 
-    name: Annotated[str, "二级菜单显示名称，最长 14 字符"]
+    name: Annotated[str, "二级菜单显示名称，最长 14 展示字符（中文/全角计 2，纯中文最多 7 字）"]
     type: Annotated[SubMenuItemType, "二级菜单类型，只能是 send_message 或 link"]
 
 
@@ -37,7 +37,7 @@ class SubMenuItemInput(SubMenuItemRequired, total=False):
 class MenuItemRequired(TypedDict):
     """一级菜单项必填字段。"""
 
-    name: Annotated[str, "一级菜单显示名称，最长 10 字符"]
+    name: Annotated[str, "一级菜单显示名称，最长 10 展示字符（中文/全角计 2，纯中文最多 5 字）"]
     type: Annotated[MenuItemType, "菜单类型"]
 
 
@@ -55,14 +55,14 @@ class MenuItemInput(MenuItemRequired, total=False):
 class PanelItemRequired(TypedDict):
     """指令面板项必填字段。"""
 
-    name: Annotated[str, "显示名称；command 类型填写指令名，最长 14 字符"]
+    name: Annotated[str, "显示名称；command 类型填写指令名，最长 14 展示字符（中文/全角计 2，纯中文最多 7 字）"]
     type: Annotated[PanelItemType, "项目类型，只能是 command 或 link"]
 
 
 class PanelItemInput(PanelItemRequired, total=False):
     """指令面板项输入。"""
 
-    desc: Annotated[str, "可选项目描述，最长 30 字符，默认空字符串"]
+    desc: Annotated[str, "可选项目描述，最长 30 展示字符（中文/全角计 2，纯中文最多 15 字），默认空字符串"]
     only_admin: Annotated[bool, "是否仅管理员可见或可用，默认 false"]
     link: Annotated[str, "type=link 时必填，必须是 HTTPS URL"]
 

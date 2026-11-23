@@ -2,19 +2,29 @@
 from __future__ import annotations
 
 from typing import Any
+from unicodedata import east_asian_width
 from urllib.parse import urlsplit
 
 _SCOPES = {"c2c", "group", "channel", "dm"}
 _TARGET_TYPES = {"all", "specific"}
 
 
-def _text(value: Any, name: str, maximum: int) -> tuple[str | None, str]:
-    """校验非空文本并返回去除首尾空白后的值。"""
+def _display_length(value: str) -> int:
+    """计算展示字符数：中文及全角宽字符计 2，其余字符计 1。"""
+    return sum(2 if east_asian_width(char) in {"W", "F"} else 1 for char in value)
+
+
+def _text(
+    value: Any, name: str, maximum: int, *, display: bool = False
+) -> tuple[str | None, str]:
+    """校验非空文本，仅展示字段使用中文双字符计数。"""
     if not isinstance(value, str) or not value.strip():
         return f"{name} 不能为空", ""
     normalized = value.strip()
-    if len(normalized) > maximum:
-        return f"{name} 最多 {maximum} 个字符", ""
+    length = _display_length(normalized) if display else len(normalized)
+    if length > maximum:
+        unit = "展示字符（中文/全角计 2）" if display else "字符"
+        return f"{name} 最多 {maximum} 个{unit}，当前 {length}", ""
     return None, normalized
 
 
@@ -46,19 +56,21 @@ def normalize_menu(items: Any) -> tuple[str | None, dict[str, Any]]:
     if not isinstance(items, list) or len(items) > 10:
         return "菜单项必须是最多 10 项的列表", {}
     normalized: list[dict[str, Any]] = []
-    for item in items:
-        error, result = _normalize_menu_item(item, sub=False)
+    for index, item in enumerate(items):
+        error, result = _normalize_menu_item(item, sub=False, path=f"menu.items[{index}]")
         if error:
             return error, {}
         normalized.append(result)
     return None, {"menu": {"items": normalized}}
 
 
-def _normalize_menu_item(item: Any, *, sub: bool) -> tuple[str | None, dict[str, Any]]:
-    """校验一级或二级菜单项。"""
+def _normalize_menu_item(
+    item: Any, *, sub: bool, path: str
+) -> tuple[str | None, dict[str, Any]]:
+    """校验一级或二级菜单项，并定位展示名称的具体字段。"""
     if not isinstance(item, dict):
         return "菜单项必须是对象", {}
-    error, name = _text(item.get("name"), "菜单项 name", 14 if sub else 10)
+    error, name = _text(item.get("name"), f"{path}.name", 14 if sub else 10, display=True)
     if error:
         return error, {}
     allowed = {"send_message", "link"} if sub else {"switch", "send_message", "link", "menu"}
@@ -89,8 +101,10 @@ def _normalize_menu_item(item: Any, *, sub: bool) -> tuple[str | None, dict[str,
         if not isinstance(children, list) or not 1 <= len(children) <= 5:
             return "sub_menu_items 数量必须在 1~5 之间", {}
         result["sub_menu_items"] = []
-        for child in children:
-            child_error, normalized = _normalize_menu_item(child, sub=True)
+        for index, child in enumerate(children):
+            child_error, normalized = _normalize_menu_item(
+                child, sub=True, path=f"{path}.sub_menu_items[{index}]"
+            )
             if child_error:
                 return child_error, {}
             result["sub_menu_items"].append(normalized)
@@ -108,15 +122,19 @@ def normalize_panel(panel: Any) -> tuple[str | None, dict[str, Any]]:
     if not isinstance(remark, str) or len(remark) > 255:
         return "panel.remark 最多 255 个字符", {}
     normalized_items: list[dict[str, Any]] = []
-    for item in items:
+    for index, item in enumerate(items):
+        path = f"panel.items[{index}]"
         if not isinstance(item, dict):
-            return "panel.items 每项必须是对象", {}
-        error, name = _text(item.get("name"), "面板项 name", 14)
+            return f"{path} 必须是对象", {}
+        error, name = _text(item.get("name"), f"{path}.name", 14, display=True)
         if error:
             return error, {}
         desc = item.get("desc", "")
-        if not isinstance(desc, str) or len(desc) > 30:
-            return "面板项 desc 最多 30 个字符", {}
+        if not isinstance(desc, str):
+            return f"{path}.desc 必须是字符串", {}
+        desc_length = _display_length(desc)
+        if desc_length > 30:
+            return f"{path}.desc 最多 30 个展示字符（中文/全角计 2），当前 {desc_length}", {}
         item_type = item.get("type")
         if item_type not in {"command", "link"}:
             return "面板项 type 只能是 command 或 link", {}
