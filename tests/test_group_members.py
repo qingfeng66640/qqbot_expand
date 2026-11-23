@@ -107,12 +107,12 @@ class TestGroupMembersService:
         handler = patch_send_handler
         handler.post_results = [{"remove_members_result": "success"}]
         result = await QQBotGroupMembersService(make_plugin(http_client=FakeHttpClient())).batch_remove_members(
-            "g1", ["m1"], add_to_member_blacklist=True
+            "g1", ["m1"]
         )
         assert result["success"] is True
         url, _, body = handler.posts[0]
         assert url.endswith("/v2/groups/g1/batch_remove_members")
-        assert body == {"member_openids": ["m1"], "add_to_member_blacklist": True}
+        assert body == {"member_openids": ["m1"]}
 
     async def test_batch_remove_rejects_too_many(self, patch_send_handler) -> None:
         result = await QQBotGroupMembersService(make_plugin(http_client=FakeHttpClient())).batch_remove_members(
@@ -225,6 +225,26 @@ class TestGroupMembersTools:
         )
         assert success is True
         assert data["fail_openids"] == []
+
+    async def test_batch_remove_with_confirm_posts_only_member_openids(
+        self, patch_send_handler: FakeSendHandler,
+    ) -> None:
+        """显式确认后只移除触发群成员，不自动拉黑。"""
+        handler = patch_send_handler
+        handler.post_results = [{"remove_members_result": "success"}]
+        plugin = make_plugin(
+            http_client=FakeHttpClient(),
+            enable_group_members_tools=True,
+            group_members_allowed_group_openids=["g1"],
+        )
+        success, data = await self._tool(plugin, QQBatchRemoveGroupMembersTool).execute(  # type: ignore[attr-defined]
+            member_openids=["m1"], confirm=True
+        )
+        assert success is True
+        assert data["remove_members_result"] == "success"
+        assert len(handler.posts) == 1
+        assert handler.posts[0][0].endswith("/v2/groups/g1/batch_remove_members")
+        assert handler.posts[0][2] == {"member_openids": ["m1"]}
 
     async def test_batch_remove_requires_confirm(self, patch_send_handler) -> None:
         handler = patch_send_handler

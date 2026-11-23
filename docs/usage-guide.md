@@ -87,9 +87,9 @@ members = service_api.get_service("qqbot_expand:service:qqbot_group_members")
 await members.list_members(group_openid)               # 每页最多 30 条，60 QPM
 await members.get_member(group_openid, member_openid)  # 单个成员详情，30 QPM
 await members.list_blacklist(group_openid, limit=50)   # 黑名单查询，30 QPM
-await members.update_blacklist(group_openid, "add", [member_openid])   # 需目标已不在群中
-await members.batch_remove_members(group_openid, [member_openid],
-                                   add_to_member_blacklist=True)       # 移除并拉黑
+await members.batch_remove_members(group_openid, [member_openid])  # 只移除，不自动拉黑
+# 黑名单是另一次独立、显式决定的调用；需先确认目标已不在群中。
+await members.update_blacklist(group_openid, "add", [member_openid])
 ```
 
 批量写操作（黑名单增删、移除成员）单次最多 20 人。

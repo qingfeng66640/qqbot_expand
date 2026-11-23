@@ -171,7 +171,7 @@ QQ 返回错误码 11253，本插件按普通 API 权限错误脱敏透传，需
 | `get_member(group_openid, member_openid)` | GET | 查询单个成员详情，30 QPM |
 | `list_blacklist(group_openid, cursor="", limit=20)` | GET | 分页查询群黑名单，`limit` 为 1–100，30 QPM |
 | `update_blacklist(group_openid, op, member_openids)` | POST | `op` 为 `add/del`，单次最多 20 人，60 QPM；`add` 要求目标已不在群中 |
-| `batch_remove_members(group_openid, member_openids, *, add_to_member_blacklist=False)` | POST | 批量移除成员，单次最多 20 人，30 QPM；可选同时拉黑，失败列表见 `add_to_member_blacklist_fail_openids` |
+| `batch_remove_members(group_openid, member_openids)` | POST | 仅移除成员，单次最多 20 人，30 QPM；只下发 `member_openids`，不自动拉黑 |
 
 Service 由 `features.enable_group_members_service` 控制（默认 false）。
 

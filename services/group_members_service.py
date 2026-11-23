@@ -113,7 +113,11 @@ class QQBotGroupMembersService(BaseService):
     async def batch_remove_members(
         self, group_openid: str, member_openids: list[str], *, add_to_member_blacklist: bool = False
     ) -> dict[str, Any]:
-        """批量移除群成员，单次最多 20 人，可选同时拉黑（30 QPM）。"""
+        """仅批量移除成员（最多 20 人，30 QPM），黑名单由独立调用决定。
+
+        旧 add_to_member_blacklist 参数仅用于明确兼容性错误，True 不产生
+        部分移除或自动追加请求；需另行显式调用 update_blacklist。
+        """
         list_error, openids = _string_list(member_openids, "member_openids", _BLACKLIST_MAX_OPENIDS)
         if list_error:
             return failure(list_error)
@@ -122,8 +126,6 @@ class QQBotGroupMembersService(BaseService):
         error, path = await self._group_path(group_openid, "batch_remove_members")
         if error:
             return failure(error)
-        return await self._request(
-            "POST",
-            path,
-            {"member_openids": openids, "add_to_member_blacklist": add_to_member_blacklist},
-        )
+        if add_to_member_blacklist:
+            return failure("移除与黑名单操作已分离；请另行显式调用 update_blacklist，未执行移除")
+        return await self._request("POST", path, {"member_openids": openids})

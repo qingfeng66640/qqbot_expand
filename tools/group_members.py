@@ -106,18 +106,17 @@ class QQManageGroupBlacklistTool(_GroupMembersTool):
 
 
 class QQBatchRemoveGroupMembersTool(_GroupMembersTool):
-    """批量移除当前群的成员，可选同时加入黑名单。"""
+    """仅批量移除当前群成员；群黑名单是另一个独立操作。"""
 
     tool_name = "qq_batch_remove_group_members"
     tool_description = (
-        "把一批成员移出当前 QQ 群（单次最多 20 人），可选择同时加入群黑名单。"
+        "仅把一批成员移出当前 QQ 群（单次最多 20 人），不会自动加入群黑名单。"
         "属高权限操作，必须显式确认。"
     )
 
     async def execute(
         self,
         member_openids: Annotated[list[str], "需要移除的成员 openid 列表，单次最多 20 个"],
-        add_to_member_blacklist: Annotated[bool, "移除时是否同时加入群黑名单"] = False,
         confirm: Annotated[bool, "必须显式传 true 才会执行"] = False,
     ) -> tuple[bool, str | dict]:
         """批量移除当前群成员。"""
@@ -127,6 +126,6 @@ class QQBatchRemoveGroupMembersTool(_GroupMembersTool):
         if confirm is not True:
             return False, "批量移除成员需显式传 confirm=true"
         result = await QQBotGroupMembersService(self.plugin).batch_remove_members(
-            group_openid, member_openids, add_to_member_blacklist=add_to_member_blacklist
+            group_openid, member_openids
         )
         return (True, result["data"]) if result["success"] else (False, result["error"])
