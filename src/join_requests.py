@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.app.plugin_system.api.log_api import get_logger
+from src.kernel.concurrency import TaskInfo
 
 logger = get_logger("qqbot_expand.join_request")
 
@@ -22,7 +23,7 @@ class JoinRequestRuntime:
         self._plugin = plugin
         self._callbacks: dict[str, JoinRequestCallback] = {}
         self._seen: OrderedDict[str, float] = OrderedDict()
-        self._tasks: list[Any] = []
+        self._tasks: list[TaskInfo] = []
         self._lock = asyncio.Lock()
 
     async def claim(self, join_request_id: str) -> bool:
@@ -64,16 +65,14 @@ class JoinRequestRuntime:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"入群申请回调失败: name={name} error={exc}")
 
-    def track_task(self, task_info: Any) -> None:
+    def track_task(self, task_info: TaskInfo) -> None:
         """登记本运行时创建的任务。"""
         self._tasks.append(task_info)
 
     async def close(self) -> None:
         """取消任务并清空回调与去重状态。"""
         for task_info in tuple(self._tasks):
-            cancel = getattr(task_info, "cancel", None)
-            if callable(cancel):
-                cancel()
+            task_info.cancel()
         self._tasks.clear()
         async with self._lock:
             self._callbacks.clear()
