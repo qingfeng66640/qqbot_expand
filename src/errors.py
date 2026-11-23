@@ -14,6 +14,8 @@ from typing import Any
 
 __all__ = [
     "api_business_error",
+    "is_api_access_denied",
+    "removal_permission_error",
     "format_api_error_diagnostics",
     "ERROR_ADAPTER_NOT_READY",
     "ERROR_BAD_REQUEST",
@@ -41,6 +43,22 @@ ERROR_SERVER = "QQ 服务端错误"
 ERROR_TIMEOUT = "请求超时"
 ERROR_NETWORK = "网络错误"
 ERROR_GENERIC = "调用失败"
+_REMOVAL_PERMISSION_ERRORS = {
+    "40103011": "机器人管理端已关闭移除群成员操作权限",
+    "40103012": "群主已关闭移除群成员操作权限",
+}
+
+
+def removal_permission_error(payload: Any) -> str | None:
+    """识别当前移除接口的操作权限码，不与 HTTP 401 鉴权失败混淆。"""
+    if not isinstance(payload, dict):
+        return None
+    for field in ("err_code", "code"):
+        value = payload.get(field)
+        if type(value) in (int, str) and (error := _REMOVAL_PERMISSION_ERRORS.get(str(value))):
+            return error
+    return None
+
 
 # 关键字 -> 文案。顺序敏感：先匹配到的先返回，故把更具体的放在前面。
 _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
@@ -73,10 +91,27 @@ def sanitize_error(exc: BaseException | str) -> str:
     return ERROR_GENERIC
 
 
+def is_api_access_denied(payload: Any) -> bool:
+    """识别任一业务码字段中的 11253，不匹配原始错误描述。"""
+    if not isinstance(payload, dict):
+        return False
+    for field in ("code", "err_code"):
+        value = payload.get(field)
+        if type(value) is int and value == 11253:
+            return True
+        if isinstance(value, str) and re.fullmatch(r"0{0,5}11253", value):
+            return True
+    return False
+
+
 def api_business_error(payload: Any) -> str | None:
     """Identify nonzero QQ business codes without requiring or exposing message."""
     if not isinstance(payload, dict):
         return None
+    if permission_error := removal_permission_error(payload):
+        return permission_error
+    if is_api_access_denied(payload):
+        return ERROR_FORBIDDEN
     for field in ("err_code", "code"):
         value = payload.get(field)
         if value is None or value == "":

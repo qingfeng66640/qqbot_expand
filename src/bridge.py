@@ -31,9 +31,12 @@ from src.app.plugin_system.api.log_api import get_logger
 from .constants import API_BASE_PRODUCTION
 from .errors import (
     ERROR_ADAPTER_NOT_READY,
+    ERROR_FORBIDDEN,
     ERROR_GENERIC,
     api_business_error,
     format_api_error_diagnostics,
+    is_api_access_denied,
+    removal_permission_error,
     sanitize_error,
     sanitize_http_status,
 )
@@ -252,7 +255,7 @@ def _retry_settings(plugin: Any) -> tuple[int, float, float, float]:
     )
 
 
-def _log_http_failure(method: str, response: Any) -> None:
+def _log_http_failure(method: str, response: Any) -> str:
     """记录可关联的 QQ 错误码，不记录响应正文、完整 URL 或异常文本。"""
     try:
         payload = response.json()
@@ -261,6 +264,11 @@ def _log_http_failure(method: str, response: Any) -> None:
         payload = None
     details = format_api_error_diagnostics(payload)
     logger.warning(f"{method} QQ API 失败: status={response.status_code} {details}".rstrip())
+    if permission_error := removal_permission_error(payload):
+        return permission_error
+    if response.status_code == 400 and is_api_access_denied(payload):
+        return ERROR_FORBIDDEN
+    return sanitize_http_status(response.status_code)
 
 
 async def _request_via_adapter(
@@ -287,8 +295,7 @@ async def _request_via_adapter(
     try:
         response = await send_handler.post_api(url, headers, body)
     except httpx.HTTPStatusError as exc:
-        _log_http_failure("POST", exc.response)
-        return failure(sanitize_http_status(exc.response.status_code))
+        return failure(_log_http_failure("POST", exc.response))
     except Exception as exc:  # noqa: BLE001 - 错误须脱敏后返回
         error = sanitize_error(exc)
         logger.warning(f"POST 请求失败: {error}")
@@ -353,8 +360,7 @@ async def _request_via_http(
 
         # 非 2xx 响应不重放，也不能解析成成功。
         if not 200 <= response.status_code < 300:
-            _log_http_failure(method, response)
-            return failure(sanitize_http_status(response.status_code))
+            return failure(_log_http_failure(method, response))
         payload = _parse_json(response)
         if business_error := api_business_error(payload):
             logger.warning(f"{method} QQ API 业务失败: {format_api_error_diagnostics(payload)}")
