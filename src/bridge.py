@@ -7,7 +7,7 @@
    ``_send_handler`` / ``_token_mgr`` 之类的私有成员。
 
 2. **POST 复用适配器**。``SendHandler.post_api()`` 内置了 401 重试与错误处理，
-   POST 请求一律走它，避免重复实现重试语义。
+   普通 POST 走它；禁止重试的 POST 使用插件自持客户端。
 
 3. **非 POST 自持客户端**。``post_api()`` 只支持 POST，GET / PUT / DELETE
    由本插件自己的 ``httpx.AsyncClient`` 发出，token 仍向适配器索取。
@@ -206,7 +206,8 @@ async def api_request(
     if _should_log_payload(plugin):
         logger.info(f"[qqbot_expand] {normalized_method} {url} body={body}")
 
-    if normalized_method == "POST":
+    # 一次性 POST 不经 Adapter 内部可重试的公开 POST 出口。
+    if normalized_method == "POST" and retry_network_errors:
         return await _request_via_adapter(send_handler, url, body or {})
     return await _request_via_http(
         plugin,
@@ -350,8 +351,8 @@ async def _request_via_http(
             await _sleep_backoff(attempt, backoff_base, backoff_max, jitter)
             continue
 
-        # HTTP 状态码错误不重试，直接归类返回
-        if response.status_code >= 400:
+        # 非 2xx 响应不重放，也不能解析成成功。
+        if not 200 <= response.status_code < 300:
             _log_http_failure(method, response)
             return failure(sanitize_http_status(response.status_code))
         return success(_parse_json(response))
