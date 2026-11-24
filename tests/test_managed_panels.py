@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.app.plugin_system.api import service_api
+
 from ..config import QQBotExpandConfig
 from ..services.menu_panel_service import QQBotMenuPanelService
 from ..src.errors import ERROR_NOT_FOUND
@@ -317,93 +319,63 @@ class TestManagedPanelReconciliation:
 class TestManagedPanelLifecycle:
     """后台任务调度、Adapter 启动等待与关闭。"""
 
-    async def test_adapter_not_ready_retries_then_reconciles(self, monkeypatch) -> None:
-        """Adapter 启动竞态只触发有限重试，随后完成一次对账。"""
-        from ..src.managed_panels import _AdapterNotReady
+    @pytest.fixture
+    def ready_adapter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """为关注对账本身的测试提供已就绪的 Adapter Service。"""
+        service = SimpleNamespace(wait_until_ready=AsyncMock(return_value=True))
+        monkeypatch.setattr(service_api, "get_service", lambda _signature: service)
 
+    @pytest.mark.usefixtures("ready_adapter")
+    async def test_non_adapter_failure_is_not_retried(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """普通对账异常按原样传播，不重放对账。"""
         runtime = ManagedPanelRuntime(_plugin())
-        calls = 0
-        sleeps: list[float] = []
-
-        async def reconcile():
-            nonlocal calls
-            calls += 1
-            if calls < 3:
-                raise _AdapterNotReady
-
-        async def fake_sleep(delay: float) -> None:
-            sleeps.append(delay)
-
-        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
-        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", fake_sleep)
-
-        await runtime._reconcile_with_adapter_retry()
-
-        assert calls == 3
-        assert sleeps == [0.5, 1.0]
-
-    async def test_adapter_not_ready_retry_is_bounded(self, monkeypatch) -> None:
-        """Adapter 永久未就绪时最多尝试 8 次。"""
-        from ..src.managed_panels import _AdapterNotReady
-
-        runtime = ManagedPanelRuntime(_plugin())
-        calls = 0
-        sleeps: list[float] = []
-
-        async def reconcile():
-            nonlocal calls
-            calls += 1
-            raise _AdapterNotReady
-
-        async def fake_sleep(delay: float) -> None:
-            sleeps.append(delay)
-
-        monkeypatch.setattr(runtime, "reconcile_once", reconcile)
-        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", fake_sleep)
-
-        await runtime._reconcile_with_adapter_retry()
-
-        assert calls == 8
-        assert sleeps == [0.5, 1.0, 2.0, 4.0, 4.0, 4.0, 4.0]
-
-    async def test_non_adapter_failure_is_not_retried(self, monkeypatch) -> None:
-        """普通对账失败不应进入 Adapter 启动重试循环。"""
-        runtime = ManagedPanelRuntime(_plugin())
-        calls = 0
-
-        async def reconcile():
-            nonlocal calls
-            calls += 1
-            raise ValueError("普通失败")
-
+        reconcile = AsyncMock(side_effect=ValueError("普通失败"))
         monkeypatch.setattr(runtime, "reconcile_once", reconcile)
 
         with pytest.raises(ValueError, match="普通失败"):
-            await runtime._reconcile_with_adapter_retry()
+            await runtime._reconcile_when_adapter_ready()
 
-        assert calls == 1
+        reconcile.assert_awaited_once_with()
 
-    async def test_close_cancels_adapter_retry_sleep(self, monkeypatch) -> None:
-        """卸载时可取消 Adapter 等待任务。"""
-        from ..src.managed_panels import _AdapterNotReady
-
+    async def test_close_cancels_adapter_readiness_wait(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """卸载时取消 Adapter 就绪等待，不启动业务对账。"""
         runtime = ManagedPanelRuntime(_plugin())
         started = asyncio.Event()
+        cancelled = asyncio.Event()
+        reconcile = AsyncMock()
 
-        async def reconcile():
-            raise _AdapterNotReady
-
-        async def blocking_sleep(_delay: float) -> None:
+        async def wait_until_ready(*, timeout: float) -> bool:
+            """保持未就绪，并记录调用方取消是否传播。"""
+            assert timeout == 60.0
             started.set()
-            await asyncio.Event().wait()
+            try:
+                return await asyncio.Future()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
 
+        service = SimpleNamespace(wait_until_ready=wait_until_ready)
+        monkeypatch.setattr(service_api, "get_service", lambda _signature: service)
         monkeypatch.setattr(runtime, "reconcile_once", reconcile)
-        monkeypatch.setattr("plugins.qqbot_expand.src.managed_panels.asyncio.sleep", blocking_sleep)
-        assert await runtime.schedule() is True
-        await started.wait()
-        await runtime.close()
-        assert runtime._tasks == {}
+        try:
+            assert await runtime.schedule() is True
+            task = next(iter(runtime._tasks.values())).task
+            assert task is not None
+            async with asyncio.timeout(5):
+                await started.wait()
+                await runtime.close()
+            assert task.cancelled()
+            assert cancelled.is_set()
+            assert runtime._tasks == {}
+            reconcile.assert_not_awaited()
+        finally:
+            await runtime.close()
 
+    @pytest.mark.usefixtures("ready_adapter")
     async def test_schedule_is_single_flight_and_close_cancels(self, monkeypatch) -> None:
         """同一实例只调度一次，卸载关闭会取消并等待任务。"""
         runtime = ManagedPanelRuntime(_plugin())
@@ -420,6 +392,7 @@ class TestManagedPanelLifecycle:
         await runtime.close()
         assert runtime._tasks == {}
 
+    @pytest.mark.usefixtures("ready_adapter")
     async def test_reset_cancels_old_task_before_rescheduling(self, monkeypatch) -> None:
         """reset 不得遗留旧对账任务与新任务重叠。"""
         runtime = ManagedPanelRuntime(_plugin())

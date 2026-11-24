@@ -284,7 +284,14 @@ type = "command"
 先确认已经 reload 插件，并检查 `features.enable_menu_panel_service=true` 与
 `managed_panels.enabled=true`。
 
-托管面板在插件加载后通过后台任务对账。若 `qqbot_adapter` 仍在启动，插件会等待有限窗口后再请求 QQ API；`managed_panels` 管理的是 `/v2/panels` 指令面板，不是 `/v2/menu` 的 C2C 全局菜单。
+插件加载或 reload 不会阻塞等待 Adapter。后台任务通过 `qqbot_adapter:service:qqbot` 的
+`wait_until_ready()` 最多等待 60 秒，卸载会取消等待。只有 Gateway 就绪、发送处理器可用且适配器已在
+框架中激活，后台任务才会读账本并请求 QQ API。
+若服务未注册、配套版本不支持此接口，或未能就绪，则跳过本轮并记录原因。确认 `qqbot_adapter` 已启用、
+两个插件版本配套且适配器已就绪后，可 reload `qqbot_expand` 重新对账。对账期间掉线按普通 API 失败处理，
+不会自动重放整轮。此等待仅用于自动对账，不影响普通 Service 或互动 ACK。
+
+`managed_panels` 管理的是 `/v2/panels` 指令面板，不是 `/v2/menu` 的 C2C 全局菜单。
 
 安全边界：
 

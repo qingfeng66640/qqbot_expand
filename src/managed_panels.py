@@ -8,12 +8,13 @@ import re
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from src.app.plugin_system.api import storage_api
+from src.app.plugin_system.api import service_api, storage_api
 from src.app.plugin_system.api.log_api import get_logger
 from src.kernel.concurrency import TaskInfo, get_task_manager
 
 from ..services.menu_panel_service import QQBotMenuPanelService
-from .errors import ERROR_ADAPTER_NOT_READY, ERROR_NOT_FOUND
+from .bridge import SERVICE_SIGNATURE
+from .errors import ERROR_NOT_FOUND
 from .menu_panel_policy import normalize_panel, normalize_panel_create
 
 logger = get_logger("qqbot_expand")
@@ -23,12 +24,7 @@ _STORE_NAME = "qqbot_expand"
 _LEDGER_NAME = "managed_panels_ledger"
 _MANAGED_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _PROCESS_LOCK = asyncio.Lock()
-_RECONCILE_MAX_ATTEMPTS = 8
-_RECONCILE_BACKOFFS = (0.5, 1.0, 2.0, 4.0, 4.0, 4.0, 4.0)
-
-
-class _AdapterNotReady(Exception):
-    """表示本轮对账因 Adapter 尚未就绪而应重试。"""
+_ADAPTER_READY_TIMEOUT = 60.0
 
 
 class ManagedPanelRuntime:
@@ -61,7 +57,7 @@ class ManagedPanelRuntime:
                 or self._tasks
             ):
                 return False
-            coroutine = self._reconcile_with_adapter_retry()
+            coroutine = self._reconcile_when_adapter_ready()
             try:
                 task_info = get_task_manager().create_task(
                     coroutine,
@@ -80,22 +76,23 @@ class ManagedPanelRuntime:
             )
             return True
 
-    async def _reconcile_with_adapter_retry(self) -> None:
-        """在 Adapter 启动窗口内有限重试对账。"""
-        attempt = 0
-        while True:
-            try:
-                await self.reconcile_once()
-                return
-            except _AdapterNotReady:
-                if attempt + 1 >= _RECONCILE_MAX_ATTEMPTS:
-                    logger.warning(
-                        "qqbot_adapter 在托管面板对账重试窗口内仍未就绪，"
-                        "本次对账已结束；请 reload 插件重试"
-                    )
-                    return
-                await asyncio.sleep(_RECONCILE_BACKOFFS[attempt])
-                attempt += 1
+    async def _reconcile_when_adapter_ready(self) -> None:
+        """等待 Adapter 就绪后仅执行一轮自动对账。"""
+        service = service_api.get_service(SERVICE_SIGNATURE)
+        wait_until_ready = getattr(service, "wait_until_ready", None)
+        if not callable(wait_until_ready):
+            logger.warning(
+                f"托管面板自动对账已跳过：{SERVICE_SIGNATURE} 未注册或不支持 wait_until_ready；"
+                "请确认 qqbot_adapter 已启用，并使用支持启动就绪协议的 qqbot_adapter 与 qqbot_expand 配套版本"
+            )
+            return
+        if not await wait_until_ready(timeout=_ADAPTER_READY_TIMEOUT):
+            logger.warning(
+                "qqbot_adapter 未就绪，本轮托管面板自动对账已跳过；"
+                "请在适配器就绪后 reload qqbot_expand"
+            )
+            return
+        await self.reconcile_once()
 
     async def close(self) -> None:
         """停止对账并等待已调度任务退出。"""
@@ -217,12 +214,6 @@ class ManagedPanelRuntime:
                 return None
         return raw
 
-    @staticmethod
-    def _raise_if_adapter_not_ready(response: dict[str, Any]) -> None:
-        """把唯一可重试错误转换成运行时内部信号。"""
-        if response.get("error") == ERROR_ADAPTER_NOT_READY:
-            raise _AdapterNotReady
-
     async def _create_binding(
         self,
         service: QQBotMenuPanelService,
@@ -240,7 +231,6 @@ class ManagedPanelRuntime:
             user_openids=desired.get("user_openids"),
             group_openids=desired.get("group_openids"),
         )
-        self._raise_if_adapter_not_ready(response)
         data = response.get("data") if response.get("success") else None
         panel_id = data.get("panel_id") if isinstance(data, dict) else None
         if not isinstance(panel_id, str) or not panel_id.strip():
@@ -269,7 +259,6 @@ class ManagedPanelRuntime:
         """只查询和更新账本明确绑定的面板。"""
         panel_id = binding["panel_id"].strip()
         response = await service.get_panel(panel_id)
-        self._raise_if_adapter_not_ready(response)
         if not response.get("success"):
             if response.get("error") == ERROR_NOT_FOUND:
                 if await self._create_replacement(
@@ -294,7 +283,6 @@ class ManagedPanelRuntime:
         if self._closed:
             return "failed"
         update = await service.update_panel(panel_id, desired_panel)
-        self._raise_if_adapter_not_ready(update)
         if not update.get("success"):
             logger.warning(
                 f"更新托管面板失败: key={managed_key} panel_id={panel_id} "

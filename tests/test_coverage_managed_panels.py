@@ -7,10 +7,12 @@ from collections.abc import Coroutine
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import RootModel
 
+from src.app.plugin_system.api import service_api
 from src.kernel.concurrency import TaskInfo, TaskManager
 
 from ..src import bridge, managed_panels
@@ -419,51 +421,166 @@ async def test_schedule_failure_closes_unstarted_coroutine(
     assert patch_send_handler.posts == []
 
 
-@pytest.mark.parametrize("becomes_ready", [False, True])
-async def test_adapter_retry_runs_real_reconciliation_with_bounded_wait(
-    becomes_ready: bool,
+async def test_scheduled_reconcile_waits_for_ready_before_storage_and_qq(
     monkeypatch: pytest.MonkeyPatch,
     ledger_store: MemoryLedger,
     patch_send_handler: FakeSendHandler,
 ) -> None:
-    """Adapter 未就绪由真实 bridge 产生；就绪后仅创建一次，否则八次终止。"""
+    """真实面板 Service 不会在 Gateway 就绪前读账本或请求 QQ。"""
+    ledger_store.data = _ledger()
+    client = FakeHttpClient([FakeResponse(200, {"panel": OLD_PANEL}), FakeResponse(200, {})])
+    runtime = _runtime(client)
+    observed_activity = asyncio.Event()
+    ready = asyncio.Event()
+    timeouts: list[float] = []
+    original_request = client.request
+
+    async def wait_until_ready(*, timeout: float) -> bool:
+        """保持 Gateway 未就绪，直到检查完成。"""
+        timeouts.append(timeout)
+        observed_activity.set()
+        await ready.wait()
+        return True
+
+    async def record_request(
+        method: str, url: str, *, headers: dict[str, str], json: Any = None,
+    ) -> FakeResponse:
+        """即使旧实现绕过等待，测试也会被提前请求唤醒。"""
+        response = await original_request(method, url, headers=headers, json=json)
+        observed_activity.set()
+        return response
+
+    def get_service(signature: str) -> SimpleNamespace:
+        """仅提供约定签名的 Adapter Service。"""
+        assert signature == bridge.SERVICE_SIGNATURE
+        return SimpleNamespace(wait_until_ready=wait_until_ready)
+
+    monkeypatch.setattr(service_api, "get_service", get_service)
+    monkeypatch.setattr(client, "request", record_request)
+    try:
+        assert await runtime.schedule() is True
+        assert await runtime.schedule() is False
+        task = next(iter(runtime._tasks.values())).task
+        assert task is not None
+        async with asyncio.timeout(5):
+            await observed_activity.wait()
+            assert client.calls == []
+            assert patch_send_handler.posts == []
+            assert ledger_store.loads == 0
+            assert ledger_store.saves == []
+            assert timeouts == [60.0]
+            ready.set()
+            await task
+        assert [call["method"] for call in client.calls] == ["GET", "PUT"]
+        assert client.calls[1]["json"] == {"panel": PANEL}
+        assert patch_send_handler.posts == []
+        assert ledger_store.loads == 1
+        assert len(ledger_store.saves) == 1
+        assert ledger_store.data["bindings"]["default"]["panel_id"] == "owned/1"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.parametrize("state", ["timeout", "unregistered", "legacy"])
+async def test_readiness_unavailable_skips_scheduled_reconciliation(
+    state: str,
+    monkeypatch: pytest.MonkeyPatch,
+    ledger_store: MemoryLedger,
+    patch_send_handler: FakeSendHandler,
+) -> None:
+    """就绪超时、服务未注册或版本过旧均只告警一次，不试探 QQ API。"""
     client = FakeHttpClient()
     runtime = _runtime(client)
-    patch_send_handler.post_result = {"panel_id": "created"}
-    resolutions = 0
-    delays: list[float] = []
+    wait = AsyncMock(return_value=False)  # Adapter 合约用 False 表示超时或失败。
+    services = {
+        "timeout": SimpleNamespace(wait_until_ready=wait),
+        "unregistered": None,
+        "legacy": SimpleNamespace(),
+    }
+    get_service = Mock(return_value=services[state])
+    resolve_handler = Mock(return_value=patch_send_handler)
     warnings: list[str] = []
-
-    def resolve_handler() -> FakeSendHandler | None:
-        """仅在第三次解析后模拟 Adapter 完成启动。"""
-        nonlocal resolutions
-        resolutions += 1
-        return patch_send_handler if becomes_ready and resolutions >= 3 else None
-
-    async def record_sleep(delay: float) -> None:
-        """记录真实退避值但不等待墙钟时间。"""
-        delays.append(delay)
-
+    monkeypatch.setattr(service_api, "get_service", get_service)
     monkeypatch.setattr(bridge, "resolve_send_handler", resolve_handler)
-    monkeypatch.setattr(managed_panels.asyncio, "sleep", record_sleep)
     monkeypatch.setattr(managed_panels.logger, "warning", warnings.append)
 
-    await runtime._reconcile_with_adapter_retry()
+    try:
+        assert await runtime.schedule() is True
+        task = next(iter(runtime._tasks.values())).task
+        assert task is not None
+        async with asyncio.timeout(5):
+            await task
+    finally:
+        await runtime.close()
 
-    assert resolutions == (3 if becomes_ready else 8)
-    assert ledger_store.loads == resolutions
-    assert delays == ([0.5, 1.0] if becomes_ready else [0.5, 1.0, 2.0, 4.0, 4.0, 4.0, 4.0])
-    assert len(patch_send_handler.posts) == int(becomes_ready)
-    assert len(ledger_store.saves) == int(becomes_ready)
-    if becomes_ready:
-        assert ledger_store.data["bindings"]["default"]["panel_id"] == "created"
-        assert warnings == []
+    get_service.assert_called_once_with(bridge.SERVICE_SIGNATURE)
+    (warning,) = warnings
+    assert "对账已跳过" in warning
+    if state == "timeout":
+        wait.assert_awaited_once_with(timeout=60.0)
+        assert "未就绪" in warning
     else:
-        assert ledger_store.data is None
-        assert len(warnings) == 1 and "重试窗口内仍未就绪" in warnings[0]
+        wait.assert_not_called()
+        assert bridge.SERVICE_SIGNATURE in warning
+        assert "wait_until_ready" in warning
+        assert "已启用" in warning and "配套版本" in warning
+    resolve_handler.assert_not_called()
+    assert ledger_store.loads == 0
+    assert ledger_store.saves == []
+    assert patch_send_handler.posts == []
     assert client.calls == []
 
 
+@pytest.fixture
+def ready_adapter(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """为不测试就绪状态的任务提供兼容的 Adapter Service。"""
+    wait = AsyncMock(return_value=True)
+    service = SimpleNamespace(wait_until_ready=wait)
+    monkeypatch.setattr(service_api, "get_service", lambda _signature: service)
+    return wait
+
+
+async def test_adapter_withdrawn_during_reconciliation_does_not_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    ledger_store: MemoryLedger,
+    patch_send_handler: FakeSendHandler,
+    ready_adapter: AsyncMock,
+) -> None:
+    """首个绑定更新后 Adapter 撤走，后续创建正常失败且不重放整轮。"""
+    ledger_store.data = _ledger()
+    client = FakeHttpClient([FakeResponse(200, {"panel": OLD_PANEL}), FakeResponse(200, {})])
+    runtime = _runtime(client, [_spec(), _spec("second")])
+    resolve_handler = Mock(side_effect=[patch_send_handler, patch_send_handler, None])
+    errors: list[str] = []
+    summaries: list[str] = []
+    monkeypatch.setattr(bridge, "resolve_send_handler", resolve_handler)
+    monkeypatch.setattr(managed_panels.logger, "error", errors.append)
+    monkeypatch.setattr(managed_panels.logger, "info", summaries.append)
+
+    try:
+        assert await runtime.schedule() is True
+        task = next(iter(runtime._tasks.values())).task
+        assert task is not None
+        async with asyncio.timeout(5):
+            await task
+    finally:
+        await runtime.close()
+
+    ready_adapter.assert_awaited_once_with(timeout=60.0)
+    assert resolve_handler.call_count == 3
+    assert ledger_store.loads == 1
+    assert len(ledger_store.saves) == 1
+    assert list(ledger_store.data["bindings"]) == ["default"]
+    assert [call["method"] for call in client.calls] == ["GET", "PUT"]
+    assert client.calls[1]["json"] == {"panel": PANEL}
+    assert patch_send_handler.posts == []
+    (error,) = errors
+    assert "创建托管面板失败: key=second" in error
+    (summary,) = summaries
+    assert "created=0 updated=1 unchanged=0 failed=1" in summary
+
+
+@pytest.mark.usefixtures("ready_adapter")
 async def test_task_manager_cancellation_reset_and_reschedule_are_single_flight(
     monkeypatch: pytest.MonkeyPatch,
     ledger_store: MemoryLedger,
@@ -518,6 +635,7 @@ async def test_task_manager_cancellation_reset_and_reschedule_are_single_flight(
         await runtime.close()
 
 
+@pytest.mark.usefixtures("ready_adapter")
 async def test_close_handles_task_finished_before_done_callback(
     monkeypatch: pytest.MonkeyPatch,
     ledger_store: MemoryLedger,
