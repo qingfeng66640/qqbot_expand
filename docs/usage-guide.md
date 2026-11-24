@@ -123,6 +123,11 @@ enable_menu_panel_service = true
 `list_panels()`、`create_panel()`、`get_panel()`、`update_panel()`、`delete_panel()` 和
 `update_panel_targets()`。Service 会校验菜单/面板数量、类型、HTTPS 链接、scope 与目标组合。
 
+Expand 按 Unicode 东亚宽度校验菜单与面板的展示文本：宽字符（`W`，包括常用汉字）和全角字符（`F`）
+计 2 个单位，其他字符计 1 个单位。私聊全局菜单的一级名称最多 10 个单位，二级名称最多 14 个单位；
+指令面板项的名称最多 14 个单位、说明最多 30 个单位（全用汉字时分别最多 7、15 个）。
+超限时服务会拒绝请求，不会自动截断。
+
 LLM Tool 默认不注册。启用时还需配置：
 
 ```toml
@@ -214,9 +219,9 @@ link = "https://example.com"
 | `group_openids` | 条件必填 | `group + specific` 时填写，1~20 个群 OpenID |
 | `panel.remark` | 否 | 开发者备注，最多 255 字符，不向用户展示 |
 | `panel.items` | 是 | 1~20 个面板项 |
-| `panel.items[].name` | 是 | 展示名称，最多 14 字符；command 类型下也是填入输入框的指令 |
+| `panel.items[].name` | 是 | 展示名称，最多 14 个宽度单位（约 7 个汉字）；command 类型下也是填入输入框的指令 |
 | `panel.items[].type` | 是 | `command` 或 `link` |
-| `panel.items[].desc` | 否 | 展示说明，最多 30 字符 |
+| `panel.items[].desc` | 否 | 展示说明，最多 30 个宽度单位（约 15 个汉字） |
 | `panel.items[].only_admin` | 否 | 是否仅管理员可操作，默认 `false` |
 | `panel.items[].link` | 条件必填 | `type="link"` 时填写合法 HTTPS URL |
 
