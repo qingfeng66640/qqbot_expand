@@ -10,7 +10,10 @@ from unittest.mock import Mock
 import pytest
 
 from src.kernel.concurrency import TaskManager
+from src.kernel.event import EventDecision
 
+from ..handlers import group_join_request_event_handler
+from ..handlers.group_join_request_event_handler import QQBotGroupJoinRequestEventHandler
 from ..src import join_requests
 from ..src.join_requests import JoinRequestRuntime
 from .conftest import make_plugin
@@ -131,3 +134,64 @@ async def test_join_close_cancels_task_manager_workers(task_manager: TaskManager
         info.cancel()
         await asyncio.gather(info.task, return_exceptions=True)
         await runtime.close()
+
+
+async def test_join_close_handles_completed_cancelled_and_running_real_tasks(
+    monkeypatch: pytest.MonkeyPatch, task_manager: TaskManager,
+) -> None:
+    """入群入口登记的三种任务状态共存时，连续关闭仍能正确收尾。"""
+    plugin = make_plugin()
+    runtime = plugin.join_request_runtime = JoinRequestRuntime(plugin)
+    handler = QQBotGroupJoinRequestEventHandler(plugin)
+    entered = {name: asyncio.Event() for name in ("cancelled", "running")}
+    received: list[str] = []
+    tasks: dict[str, asyncio.Task[Any]] = {}
+
+    async def callback(params: dict[str, Any]) -> None:
+        """已完成任务立即返回，其余任务停在可取消的屏障上。"""
+        request_id = params["join_request_id"]
+        received.append(request_id)
+        if request_id in entered:
+            entered[request_id].set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(group_join_request_event_handler, "get_task_manager", lambda: task_manager)
+    assert await runtime.register("review", callback)
+    try:
+        async with asyncio.timeout(5):
+            for request_id in ("completed", "cancelled", "running"):
+                params = {"join_request_id": request_id}
+                decision, returned = await handler.execute(handler.init_subscribe[0], params)
+                assert decision is EventDecision.SUCCESS
+                assert returned is params
+                task = runtime._tasks[-1].task
+                assert task is not None
+                tasks[request_id] = task
+                if request_id == "completed":
+                    await task
+                else:
+                    await entered[request_id].wait()
+                    if request_id == "cancelled":
+                        task.cancel()
+                        with pytest.raises(asyncio.CancelledError):
+                            await task
+
+            await runtime.close()
+            await runtime.close()
+            with pytest.raises(asyncio.CancelledError):
+                await tasks["running"]
+
+        assert tasks["completed"].result() is None
+        assert tasks["cancelled"].cancelled()
+        assert tasks["running"].cancelled()
+        assert runtime._tasks == []
+        assert task_manager.get_active_tasks() == []
+        await runtime.process({"join_request_id": "after-close"})
+        assert received == ["completed", "cancelled", "running"]
+    finally:
+        await runtime.close()
+        owned = [info.task for info in task_manager.get_all_tasks() if info.task is not None]
+        for task in owned:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*owned, return_exceptions=True)
