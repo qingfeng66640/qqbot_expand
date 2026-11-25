@@ -1,4 +1,4 @@
-"""受控的 QQ 消息撤回与分享链接 Tool。"""
+"""提供受控的 QQ 消息撤回与分享链接工具。"""
 from __future__ import annotations
 
 from typing import Annotated
@@ -23,7 +23,15 @@ class QQRecallCurrentMessageTool(BaseTool):
         message_id: Annotated[str, "要撤回的本插件消息 ID"],
         confirm: Annotated[bool, "确认撤回该消息，必须为 true"],
     ) -> tuple[bool, str | dict]:
-        """撤回当前会话中记录的插件消息。"""
+        """撤回当前会话中记录的插件消息。
+
+        Args:
+            message_id: 要撤回的本插件消息 ID。
+            confirm: 是否明确确认撤回，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及撤回结果或错误描述。
+        """
         if confirm is not True:
             return False, "必须将 confirm 设为 true 才能撤回消息"
         target = resolve_target(self.trigger_message)
@@ -46,7 +54,14 @@ class QQGenerateShareLinkTool(BaseTool):
         self,
         callback_data: Annotated[str, "可选回传标识，最长 32 个字符"] = "",
     ) -> tuple[bool, str | dict]:
-        """生成机器人分享链接。"""
+        """生成机器人分享链接。
+
+        Args:
+            callback_data: 可选回传标识，最长 32 个字符。
+
+        Returns:
+            操作是否成功，以及生成的分享链接或错误描述。
+        """
         result = await QQBotUtilityService(self.plugin).generate_share_link(
             callback_data=callback_data
         )

@@ -1,4 +1,4 @@
-"""受控的 QQ 群成员查询、黑名单管理与批量移除 Tool。"""
+"""提供受控的 QQ 群成员查询、黑名单管理与批量移除工具。"""
 from __future__ import annotations
 
 from typing import Annotated, Literal
@@ -24,6 +24,11 @@ class _GroupMembersTool(BaseTool):
     associated_platforms = ["qq"]
 
     def _allowed_group_openid(self) -> tuple[str | None, str]:
+        """校验群成员管理功能权限并返回当前允许操作的群。
+
+        Returns:
+            错误描述和群 OpenID；成功时错误描述为 ``None``。
+        """
         features = getattr(getattr(self.plugin, "config", None), "features", None)
         if not bool(getattr(features, "enable_tools", True)):
             return "QQ LLM 工具当前未启用", ""
@@ -60,7 +65,17 @@ class QQQueryGroupMembersTool(_GroupMembersTool):
         cursor: Annotated[str, "分页游标，首次查询留空"] = "",
         limit: Annotated[int, "黑名单单页数量 1~100，默认 20；成员列表由 QQ 固定每页 30"] = 20,
     ) -> tuple[bool, str | dict]:
-        """按类型查询当前群成员/黑名单。"""
+        """按类型查询当前群成员或黑名单。
+
+        Args:
+            query: 查询类型，可选成员列表、单个成员或黑名单。
+            member_openid: 单个成员查询所需的成员 OpenID。
+            cursor: 分页游标，首次查询时留空。
+            limit: 黑名单单页数量。
+
+        Returns:
+            操作是否成功，以及查询结果或错误描述。
+        """
         error, group_openid = self._allowed_group_openid()
         if error:
             return False, error
@@ -93,7 +108,16 @@ class QQManageGroupBlacklistTool(_GroupMembersTool):
         member_openids: Annotated[list[str], "目标成员 openid 列表，单次最多 20 个"],
         confirm: Annotated[bool, "必须显式传 true 才会执行"] = False,
     ) -> tuple[bool, str | dict]:
-        """更新当前群黑名单。"""
+        """更新当前群黑名单。
+
+        Args:
+            op: 操作类型，添加或移出黑名单。
+            member_openids: 目标群成员 OpenID 列表。
+            confirm: 是否明确确认操作，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及执行结果或错误描述。
+        """
         error, group_openid = self._allowed_group_openid()
         if error:
             return False, error
@@ -119,7 +143,15 @@ class QQBatchRemoveGroupMembersTool(_GroupMembersTool):
         member_openids: Annotated[list[str], "需要移除的成员 openid 列表，单次最多 20 个"],
         confirm: Annotated[bool, "必须显式传 true 才会执行"] = False,
     ) -> tuple[bool, str | dict]:
-        """批量移除当前群成员。"""
+        """批量移除当前群成员。
+
+        Args:
+            member_openids: 要从当前群移除的成员 OpenID 列表。
+            confirm: 是否明确确认操作，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及执行结果或错误描述。
+        """
         error, group_openid = self._allowed_group_openid()
         if error:
             return False, error

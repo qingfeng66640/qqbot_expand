@@ -1,4 +1,4 @@
-"""QQ 菜单与指令面板管理 Tool。"""
+"""提供 QQ 菜单与指令面板管理工具。"""
 from __future__ import annotations
 
 from typing import Annotated, Any
@@ -27,12 +27,27 @@ __all__ = [
 
 
 def _features(tool: BaseTool) -> Any:
-    """读取 Tool 所属插件的功能配置。"""
+    """读取工具所属插件的功能配置。
+
+    Args:
+        tool: 用于获取插件配置的工具实例。
+
+    Returns:
+        插件功能配置；未配置时返回 ``None``。
+    """
     return getattr(getattr(tool.plugin, "config", None), "features", None)
 
 
 def _configured_strings(features: Any, name: str) -> set[str]:
-    """将配置中的字符串列表归一化为集合。"""
+    """将配置中的字符串列表归一化为集合。
+
+    Args:
+        features: 插件功能配置对象。
+        name: 要读取的配置属性名。
+
+    Returns:
+        去除首尾空白后的非空字符串集合。
+    """
     return {
         item.strip()
         for item in getattr(features, name, []) or []
@@ -41,7 +56,15 @@ def _configured_strings(features: Any, name: str) -> set[str]:
 
 
 def _authorized(tool: BaseTool, *, panel_id: str = "") -> tuple[str | None, Any]:
-    """验证总开关、操作者、当前群和可选面板白名单。"""
+    """验证总开关、操作者、当前群和可选面板白名单。
+
+    Args:
+        tool: 发起操作的工具实例。
+        panel_id: 可选的面板 ID；提供时同时校验面板白名单。
+
+    Returns:
+        错误描述和当前会话目标；校验通过时错误描述为 ``None``。
+    """
     features = _features(tool)
     if not bool(getattr(features, "enable_tools", True)):
         return "QQ LLM 工具当前未启用", None
@@ -69,7 +92,15 @@ def _authorized(tool: BaseTool, *, panel_id: str = "") -> tuple[str | None, Any]
 
 
 def _profile(features: Any, name: str) -> tuple[str | None, dict[str, Any]]:
-    """按名称读取受信 profile，并校验其中的群目标白名单。"""
+    """按名称读取受信配置，并校验其中的群目标白名单。
+
+    Args:
+        features: 插件功能配置对象。
+        name: 受信配置名称。
+
+    Returns:
+        错误描述和匹配的配置；成功时错误描述为 ``None``。
+    """
     if not isinstance(name, str) or not name.strip():
         return "profile_name 不能为空", {}
     for profile in getattr(features, "menu_panel_profiles", []) or []:
@@ -90,12 +121,19 @@ def _profile(features: Any, name: str) -> tuple[str | None, dict[str, Any]]:
 
 
 def _result(result: dict[str, Any]) -> tuple[bool, str | dict]:
-    """将 Service 返回值转换为 Tool 返回约定。"""
+    """将服务返回值转换为工具返回约定。
+
+    Args:
+        result: 包含 ``success`` 及结果数据或错误信息的服务响应。
+
+    Returns:
+        操作是否成功，以及结果数据或错误描述。
+    """
     return (True, result["data"]) if result["success"] else (False, result["error"])
 
 
 class _MenuPanelTool(BaseTool):
-    """菜单面板 Tool 的通用授权门禁。"""
+    """菜单面板工具的通用授权门禁。"""
 
     associated_platforms = ["qq"]
 
@@ -110,7 +148,14 @@ class QQGetMenuPanelTool(_MenuPanelTool):
         self,
         panel_id: Annotated[str, "已授权的面板 ID；留空查询全局菜单"] = "",
     ) -> tuple[bool, str | dict]:
-        """查询全局菜单或面板详情。"""
+        """查询全局菜单或指定面板详情。
+
+        Args:
+            panel_id: 已授权的面板 ID；留空时查询全局菜单。
+
+        Returns:
+            操作是否成功，以及菜单或面板数据或错误描述。
+        """
         error, _ = _authorized(self, panel_id=panel_id)
         if error:
             return False, error
@@ -132,7 +177,16 @@ class QQListPanelsTool(_MenuPanelTool):
         cursor: str = "",
         limit: int = 20,
     ) -> tuple[bool, str | dict]:
-        """查询指定场景的面板列表。"""
+        """查询指定场景的指令面板列表。
+
+        Args:
+            scope: 面板场景。
+            cursor: 分页游标；首次查询时留空。
+            limit: 单页返回数量。
+
+        Returns:
+            操作是否成功，以及面板列表或错误描述。
+        """
         error, _ = _authorized(self)
         if error:
             return False, error
@@ -155,7 +209,15 @@ class QQUpdateMenuTool(_MenuPanelTool):
         ],
         confirm: Annotated[bool, "确认覆盖全局菜单；必须为 true"],
     ) -> tuple[bool, str | dict]:
-        """经显式确认后覆盖全局菜单。"""
+        """经显式确认后覆盖全局菜单。
+
+        Args:
+            items: 要写入的完整菜单项列表。
+            confirm: 是否明确确认覆盖，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及更新结果或错误描述。
+        """
         features = _features(self)
         if not bool(getattr(features, "allow_global_menu_write", False)):
             return False, "全局菜单写入未启用"
@@ -184,7 +246,16 @@ class QQCreatePanelTool(_MenuPanelTool):
             str, "可选的受信 profile 名称；留空时使用当前群或当前私聊用户"
         ] = "",
     ) -> tuple[bool, str | dict]:
-        """为当前会话或 profile 内固定的目标创建面板。"""
+        """为当前会话或受信配置中固定的目标创建面板。
+
+        Args:
+            panel: 要创建的指令面板内容。
+            confirm: 是否明确确认创建，必须为 ``True``。
+            profile_name: 可选的受信配置名称；留空时使用当前群或私聊用户。
+
+        Returns:
+            操作是否成功，以及新面板信息或错误描述。
+        """
         features = _features(self)
         if not bool(getattr(features, "allow_panel_create", False)):
             return False, "创建指令面板未启用"
@@ -239,7 +310,16 @@ class QQUpdatePanelTool(_MenuPanelTool):
         ],
         confirm: Annotated[bool, "确认覆盖面板内容；必须为 true"],
     ) -> tuple[bool, str | dict]:
-        """经显式确认后更新白名单面板。"""
+        """经显式确认后更新白名单中的面板。
+
+        Args:
+            panel_id: 配置白名单内的面板 ID。
+            panel: 要写入的新面板内容。
+            confirm: 是否明确确认更新，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及更新结果或错误描述。
+        """
         if confirm is not True:
             return False, "必须将 confirm 设为 true"
         error, _ = _authorized(self, panel_id=panel_id)
@@ -259,7 +339,15 @@ class QQDeletePanelTool(_MenuPanelTool):
     async def execute(
         self, panel_id: str, confirm: bool
     ) -> tuple[bool, str | dict]:
-        """经独立开关和显式确认后删除面板。"""
+        """经独立开关和显式确认后删除面板。
+
+        Args:
+            panel_id: 配置白名单内的面板 ID。
+            confirm: 是否明确确认删除，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及删除结果或错误描述。
+        """
         features = _features(self)
         if not bool(getattr(features, "allow_panel_delete", False)):
             return False, "面板删除未启用"
@@ -283,7 +371,16 @@ class QQUpdatePanelTargetsTool(_MenuPanelTool):
         op: Annotated[PanelTargetOp, "关联对象操作：add 添加或 del 删除"],
         confirm: Annotated[bool, "确认修改关联对象；必须为 true"],
     ) -> tuple[bool, str | dict]:
-        """使用 profile 中固定的 panel_id 和目标集合更新关联。"""
+        """使用受信配置中固定的面板 ID 和目标集合更新关联。
+
+        Args:
+            profile_name: 含面板 ID 和固定目标的受信配置名称。
+            op: 关联对象操作，可选添加或删除。
+            confirm: 是否明确确认修改，必须为 ``True``。
+
+        Returns:
+            操作是否成功，以及更新结果或错误描述。
+        """
         if confirm is not True:
             return False, "必须将 confirm 设为 true"
         features = _features(self)

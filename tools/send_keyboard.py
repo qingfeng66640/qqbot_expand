@@ -1,9 +1,8 @@
-"""按钮菜单 Tool。
+"""提供按钮菜单工具。
 
-让 LLM 在回复里附带一排可点击按钮，把"接下来能做什么"直接摆给用户，
-免去用户手动敲指令。
+允许 LLM 在回复中附带可点击按钮，直接向用户展示后续操作选项，免去手动输入指令。
 
-按钮的 openid 目标由触发消息反推，LLM 不需要（也无法）指定发给谁。
+按钮的 OpenID 目标由触发消息推导，LLM 无法自行指定接收对象。
 """
 from __future__ import annotations
 
@@ -55,9 +54,9 @@ class QQSendKeyboardTool(BaseTool):
         """发送按钮菜单。
 
         Args:
-            content: 按钮上方的 Markdown 正文。
+            content: 按钮上方显示的 Markdown 正文。
             buttons: 扁平按钮列表，由本方法按 ``per_row`` 自动折行。
-            per_row: 每行按钮数量。
+            per_row: 每行按钮的数量。
 
         Returns:
             ``(是否成功, 结果描述)``。
@@ -106,8 +105,8 @@ class QQSendKeyboardTool(BaseTool):
         """把扁平按钮列表折成二维行结构。
 
         Args:
-            buttons: LLM 给出的按钮描述列表。
-            per_row: 每行按钮数量。
+            buttons: LLM 提供的按钮描述列表。
+            per_row: 每行按钮的数量。
             auto_enter: 指令按钮是否点击后自动发送。QQ 侧该行为仅单聊生效，
                 群聊传 True 无效，因此这里由调用方按场景传入。
 

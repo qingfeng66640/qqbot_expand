@@ -1,4 +1,4 @@
-"""qqbot_expand Tool 组件包。"""
+"""qqbot_expand 工具组件包。"""
 from __future__ import annotations
 
 from .group_admin import QQReviewGroupJoinRequestTool, QQSetGroupMemberMuteTool

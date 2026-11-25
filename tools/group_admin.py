@@ -1,4 +1,4 @@
-"""受控的 QQ 群入群审批与成员禁言 Tool。"""
+"""提供受控的 QQ 群入群审批与成员禁言工具。"""
 from __future__ import annotations
 
 from typing import Annotated
@@ -19,6 +19,11 @@ class _GroupAdminTool(BaseTool):
     associated_platforms = ["qq"]
 
     def _allowed_group_openid(self) -> tuple[str | None, str]:
+        """校验群管理功能权限并返回当前允许操作的群。
+
+        Returns:
+            错误描述和群 OpenID；成功时错误描述为 ``None``。
+        """
         features = getattr(getattr(self.plugin, "config", None), "features", None)
         if not bool(getattr(features, "enable_tools", True)):
             return "QQ LLM 工具当前未启用", ""
@@ -53,7 +58,18 @@ class QQReviewGroupJoinRequestTool(_GroupAdminTool):
         reject_reason: Annotated[str, "拒绝原因；仅 decline 时可填"] = "",
         add_to_member_blacklist: Annotated[bool, "拒绝时是否加入群黑名单"] = False,
     ) -> tuple[bool, str | dict]:
-        """审批当前群的入群申请。"""
+        """审批当前群的入群申请。
+
+        Args:
+            member_openid: 申请人的成员 OpenID。
+            op: 审批操作，批准或拒绝。
+            join_request_id: 入群申请 ID。
+            reject_reason: 拒绝原因。
+            add_to_member_blacklist: 拒绝时是否同时加入群黑名单。
+
+        Returns:
+            操作是否成功，以及审批结果或错误描述。
+        """
         error, group_openid = self._allowed_group_openid()
         if error:
             return False, error
@@ -83,7 +99,14 @@ class QQSetGroupMemberMuteTool(_GroupAdminTool):
             '禁言操作列表（最多 20 项），每项包含 op=add/update/del、member_openid，add/update 可含 mute_expire_at（RFC3339）',
         ],
     ) -> tuple[bool, str | dict]:
-        """更新当前群成员禁言状态。"""
+        """更新当前群成员禁言状态。
+
+        Args:
+            members: 群成员禁言操作列表。
+
+        Returns:
+            操作是否成功，以及执行结果或错误描述。
+        """
         error, group_openid = self._allowed_group_openid()
         if error:
             return False, error

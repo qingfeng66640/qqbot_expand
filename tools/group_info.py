@@ -1,4 +1,4 @@
-"""当前 QQ 群的只读信息查询 Tool。"""
+"""提供当前 QQ 群的只读信息查询工具。"""
 from __future__ import annotations
 
 from src.app.plugin_system.base import BaseTool
@@ -16,7 +16,11 @@ class _CurrentGroupTool(BaseTool):
     associated_platforms = ["qq"]
 
     def _current_group_openid(self) -> tuple[str | None, str]:
-        """返回当前群 OpenID，拒绝非群会话和关闭的能力。"""
+        """返回当前群 OpenID，并拒绝非群会话或已关闭的能力。
+
+        Returns:
+            错误描述和当前群 OpenID；成功时错误描述为 ``None``。
+        """
         features = getattr(getattr(self.plugin, "config", None), "features", None)
         if not bool(getattr(features, "enable_tools", True)):
             return "QQ LLM 工具当前未启用", ""
@@ -37,7 +41,11 @@ class QQGetCurrentGroupInfoTool(_CurrentGroupTool):
     tool_description = "查询当前 QQ 群的基本信息，返回群 OpenID、名称、简介、标签和成员数量。"
 
     async def execute(self) -> tuple[bool, str | dict]:
-        """查询当前触发群的基本信息。"""
+        """查询当前触发群的基本信息。
+
+        Returns:
+            操作是否成功，以及群信息或错误描述。
+        """
         error, group_openid = self._current_group_openid()
         if error:
             return False, error
@@ -52,7 +60,11 @@ class QQGetCurrentGroupBotStateTool(_CurrentGroupTool):
     tool_description = "查询机器人在当前 QQ 群中的角色、入群时间、主动推送许可和收消息设置。"
 
     async def execute(self) -> tuple[bool, str | dict]:
-        """查询机器人在当前触发群内的状态。"""
+        """查询机器人在当前触发群内的状态。
+
+        Returns:
+            操作是否成功，以及机器人群状态或错误描述。
+        """
         error, group_openid = self._current_group_openid()
         if error:
             return False, error

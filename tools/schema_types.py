@@ -1,4 +1,4 @@
-"""面向 LLM Tool 的结构化输入类型。"""
+"""定义面向 LLM 工具的结构化输入类型。"""
 from __future__ import annotations
 
 from typing import Annotated, Literal, TypedDict

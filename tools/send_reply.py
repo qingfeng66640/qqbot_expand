@@ -1,9 +1,9 @@
-"""引用回复 Tool。
+"""提供引用回复工具。
 
-在多人群聊里，纯文本回复经常分不清在回应谁。本 Tool 让 LLM 明确引用某条
-历史消息，客户端会把被引用的原文折叠展示在回复上方。
+在多人群聊中，纯文本回复可能无法明确回应对象。本工具允许明确引用一条历史消息，
+客户端会将被引用的原文折叠显示在回复上方。
 
-被引用索引可由 LLM 显式给出；不给则使用触发消息携带的 QQ ``msg_idx``。
+引用索引可由 LLM 显式提供；未提供时使用触发消息携带的 QQ ``msg_idx``。
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class QQSendReplyTool(BaseTool):
 
         Args:
             content: 回复文本。
-            reference_message_id: 被引用消息 id，留空则用触发消息。
+            reference_message_id: 被引用消息的 QQ 索引；留空时使用触发消息的索引。
 
         Returns:
             ``(是否成功, 结果描述)``。

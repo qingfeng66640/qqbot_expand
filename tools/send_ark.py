@@ -1,7 +1,7 @@
-"""ark 卡片 Tool。
+"""提供 Ark 卡片工具。
 
-ark 是 QQ 侧预置的富文本卡片模板，比纯文本更适合展示结构化信息。
-本 Tool 只暴露官方默认开放、无需申请的两种模板：
+Ark 是 QQ 侧预置的富文本卡片模板，适合展示结构化信息。
+本工具仅开放官方默认提供、无需申请的两种模板：
 
 - 23 链接 + 文本列表：条目可带链接（链接需提前在开放平台报备）
 - 24 文本 + 缩略图：标题 + 详情描述 + 缩略图 + 跳转链接
@@ -55,9 +55,9 @@ class QQSendArkTool(BaseTool):
         """发送 ark 卡片。
 
         Args:
-            style: ``"list"`` 或 ``"card"``。
+            style: 卡片样式，取值为 ``"list"`` 或 ``"card"``。
             title: 卡片标题。
-            items: 列表条目，每项含 ``text``，可选 ``url``。
+            items: 列表条目，每项包含 ``text``，并可选包含 ``url``。
             description: 卡片详情描述。
             image_url: 卡片缩略图 URL。
             link_url: 卡片跳转 URL。
@@ -108,14 +108,14 @@ class QQSendArkTool(BaseTool):
         """构造 23 号（链接 + 文本列表）模板的 kv 参数。
 
         Args:
-            title: 列表标题，同时用作 ``#DESC#`` 与 ``#PROMPT#``。
-            items: 条目列表，每项含 ``text``，可选 ``url``。
+            title: 列表标题，同时用作 ``#DESC#`` 和 ``#PROMPT#``。
+            items: 条目列表，每项包含 ``text``，并可选包含 ``url``。
 
         Returns:
             ark kv 参数列表。
 
         Raises:
-            ValueError: 条目为空、超限或缺少 text。
+            ValueError: 条目为空、超出数量限制或缺少 ``text`` 字段。
         """
         if not items:
             raise ValueError("style='list' 时 items 不能为空")
@@ -157,7 +157,7 @@ class QQSendArkTool(BaseTool):
             ark kv 参数列表。
 
         Raises:
-            ValueError: image_url 为空。
+            ValueError: ``image_url`` 为空。
         """
         if not image_url or not image_url.strip():
             raise ValueError("style='card' 时 image_url 不能为空")
