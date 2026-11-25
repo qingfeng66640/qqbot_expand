@@ -125,22 +125,24 @@ Expand 与 `qqbot_adapter` 均遵循 QQ 官方统一域名：sandbox 与 product
 
 ```python
 from src.app.plugin_system.api import service_api
-from plugins.qqbot_expand.src.builders import build_button
-from plugins.qqbot_expand.src.constants import ACTION_TYPE_COMMAND, ACTION_TYPE_LINK
 
 msg = service_api.get_service("qqbot_expand:service:qqbot_message")
+if msg is None:
+    raise RuntimeError("QQBot 消息 Service 未注册")
 
+# 使用普通 QQ 协议字典，不导入插件内部模块。
 rows = [[
-    build_button("查看详情", action_type=ACTION_TYPE_COMMAND, data="/detail"),
-    build_button("官网", style=1, action_type=ACTION_TYPE_LINK, data="https://example.com"),
+    {"render_data": {"label": "查看详情", "visited_label": "查看详情", "style": 0},
+     "action": {"type": 2, "permission": {"type": 2}, "data": "/detail",
+                "reply": False, "enter": False, "unsupport_tips": "当前客户端不支持"}},
+    {"render_data": {"label": "官网", "visited_label": "官网", "style": 1},
+     "action": {"type": 0, "permission": {"type": 2}, "data": "https://example.com",
+                "reply": False, "enter": False, "unsupport_tips": "当前客户端不支持"}},
 ]]
 result = await msg.send_keyboard("group", group_openid, rows, content="请选择操作：", msg_id=msg_id)
 ```
 
-`src/builders.py` 里的构造函数可以自由复用，它们只做数据拼装与校验，不发请求：
-`build_button` / `build_keyboard` / `build_ark` / `build_embed` / `build_markdown` /
-`build_message_reference` / `build_media`，以及文本内嵌标签辅助 `at_user` / `at_everyone` / `emoji` /
-`cmd_enter` / `cmd_input`。
+`src/builders.py` 是 Expand 内部的数据构造模块，不是跨插件接口。其他插件通过公开 Service 和普通协议字典调用，不直接导入 Expand 的源码。
 
 ### `qqbot_expand:service:qqbot_raw`
 
@@ -160,7 +162,7 @@ await raw.request("GET", "/users/@me")          # 调用任意 openapi
 
 - `qqbot_group_info.get_group_info()` / `get_bot_group_state()`：受信插件可查询任意合法群 OpenID；对应 Tool 只查询触发群，且返回 `group_openid`。
 - `qqbot_utility.recall_message()`：仅撤回本插件记录的、目标匹配且未超过两分钟的消息；`qq_recall_current_message` 还要求 `confirm=True`。`generate_share_link()` 的 `callback_data` 最长 32 字符。
-- `qqbot_chunked_media.upload_bytes()`：只面向受信调用方的内存 `bytes`，限制 200 MB，校验 HTTPS 预签名 URL 与连续 0-based 分片；不注册为 Tool。
+- `qqbot_chunked_media.upload_bytes()`：只面向受信调用方的内存 `bytes`，限制 200 MB，校验 HTTPS 预签名 URL，并要求分片索引从 0 或 1 连续递增、覆盖整个文件；不注册为 Tool。
 - `qqbot_group_admin.register_join_request_callback()`：消费 Adapter 已发布的 `qqbot_adapter.group_join_request`，按 `join_request_id` 去重后经 TaskManager 调用受信回调，默认绝不自动审批。
 
 群信息与实用 Tool 默认关闭，分别通过 `features.enable_group_info_tools` 和 `features.enable_utility_tools` 启用。

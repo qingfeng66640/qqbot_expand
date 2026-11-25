@@ -11,7 +11,7 @@ from ..services.chunked_media_service import QQBotChunkedMediaService
 from ..services.utility_service import QQBotUtilityService
 from ..src.sent_messages import SentMessageRegistry
 from ..tools.utility import QQRecallCurrentMessageTool
-from .conftest import FakeHttpClient, FakeResponse, make_plugin
+from .conftest import FakeHttpClient, FakeResponse, FakeSendHandler, make_plugin
 
 
 class TestUtilityService:
@@ -25,6 +25,26 @@ class TestUtilityService:
         assert result["success"] is True
         assert client.calls[0]["method"] == "DELETE"
         assert client.calls[0]["url"].endswith("/v2/groups/g1/messages/m1")
+
+    async def test_recall_failure_does_not_reuse_record(
+        self, patch_send_handler: FakeSendHandler,
+    ) -> None:
+        """单聊撤回编码路径；HTTP 失败不恢复已消费的记录。"""
+        client = FakeHttpClient([FakeResponse(403, {"code": 403})])
+        plugin = make_plugin(http_client=client)
+        plugin.sent_messages.record("message/1", "user", "user/1")
+        service = QQBotUtilityService(plugin)
+
+        first = await service.recall_message("user", "user/1", "message/1")
+        second = await service.recall_message("user", "user/1", "message/1")
+
+        assert first["success"] is False
+        assert second["success"] is False
+        assert "本插件" in second["error"]
+        assert len(client.calls) == 1
+        assert client.calls[0]["method"] == "DELETE"
+        assert client.calls[0]["url"].endswith("/v2/users/user%2F1/messages/message%2F1")
+        assert patch_send_handler.posts == []
 
     async def test_rejects_unrecorded_message(self) -> None:
         result = await QQBotUtilityService(make_plugin()).recall_message("group", "g1", "m1")

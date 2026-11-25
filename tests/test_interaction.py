@@ -7,6 +7,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from src.kernel.concurrency import TaskInfo, get_task_manager
@@ -267,6 +268,34 @@ class TestClaims:
         assert first["duplicate"] is False
         assert duplicate["duplicate"] is True
         assert len(client.calls) == 1
+
+    async def test_ack_timeout_is_once_only_across_service_instances(
+        self, patch_send_handler: FakeSendHandler,
+    ) -> None:
+        """超时不确定平台是否收到 ACK；不能重试或从另一实例重发。"""
+        requests: list[httpx.Request] = []
+
+        def transport(request: httpx.Request) -> httpx.Response:
+            """在 HTTP 边界模拟读超时，不建立连接。"""
+            requests.append(request)
+            raise httpx.ReadTimeout("uncertain ACK result", request=request)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(transport), trust_env=False,
+        ) as client:
+            plugin = make_plugin(http_client=client)
+            plugin.config.http.retry_max_attempts = 3
+            first = await QQBotInteractionService(plugin).ack(" interaction-1 ", 0)
+            duplicate = await QQBotInteractionService(plugin).ack("interaction-1", 0)
+            await plugin.interaction_runtime.close()
+
+        assert first["success"] is False
+        assert first["duplicate"] is False
+        assert duplicate["success"] is True
+        assert duplicate["duplicate"] is True
+        assert len(requests) == 1
+        assert requests[0].method == "PUT"
+        assert patch_send_handler.posts == []
 
 
 class TestWorker:
