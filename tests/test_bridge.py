@@ -5,9 +5,13 @@
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
+from ..config import QQBotExpandConfig
+from ..src import bridge
 from ..src.bridge import (
     api_request,
     build_url,
@@ -22,7 +26,7 @@ from ..src.errors import (
     ERROR_TOKEN,
 )
 
-from .conftest import FakeHttpClient, FakeResponse, make_plugin
+from .conftest import FakeHttpClient, FakeResponse, FakeSendHandler, make_plugin
 
 
 class TestResultHelpers:
@@ -258,6 +262,55 @@ class TestApiRequestGuards:
 
         assert result["success"] is True
         assert result["data"] == {"ok": 1}
+
+    @pytest.mark.parametrize(
+        ("max_retries", "retry_enabled", "succeed_on_last"),
+        [(0, True, False), (10, True, False), (10, True, True),
+         (10, False, False), (10, False, True)],
+    )
+    async def test_http_retry_bounds_always_attempt_and_terminate_explicitly(
+        self,
+        max_retries: int,
+        retry_enabled: bool,
+        succeed_on_last: bool,
+        monkeypatch: pytest.MonkeyPatch,
+        patch_send_handler: FakeSendHandler,
+    ) -> None:
+        """上下界及禁重试场景均至少请求一次，退避封顶且不多发请求。"""
+        config = QQBotExpandConfig(http={
+            "retry_max_attempts": max_retries,
+            "retry_backoff_base": 0.1,
+            "retry_backoff_max": 1.0,
+            "retry_jitter": 0.0,
+        })
+        attempts = max_retries + 1 if retry_enabled else 1
+        requests: list[tuple[str, str]] = []
+        delays: list[float] = []
+
+        def transport(request: httpx.Request) -> httpx.Response:
+            """仅在预算允许的最后一次尝试返回成功。"""
+            requests.append((request.method, str(request.url)))
+            if succeed_on_last and len(requests) == attempts:
+                return httpx.Response(200, json={"ok": True})
+            raise httpx.ConnectError("synthetic connection failure", request=request)
+
+        async def record_sleep(delay: float) -> None:
+            """记录实际退避，不等待墙钟。"""
+            delays.append(delay)
+
+        monkeypatch.setattr(bridge, "asyncio", SimpleNamespace(sleep=record_sleep))
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(transport), trust_env=False,
+        ) as client:
+            result = await api_request(
+                SimpleNamespace(config=config, http_client=client),
+                "GET", "/users/@me", retry_network_errors=retry_enabled,
+            )
+
+        assert result == (success({"ok": True}) if succeed_on_last else failure(ERROR_NETWORK))
+        assert requests == [("GET", f"{patch_send_handler.base_url}/users/@me")] * attempts
+        assert delays == [min(0.1 * 2**attempt, 1.0) for attempt in range(attempts - 1)]
+        assert patch_send_handler.posts == []
 
     async def test_token_failure_is_sanitized(self, patch_send_handler) -> None:
         """取 token 失败不应透传原始异常。"""
